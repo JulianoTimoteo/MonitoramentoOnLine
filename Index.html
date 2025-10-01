@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras</title>
+    <!-- Carrega Tailwind CSS para estilização moderna e responsiva -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Configuração de fonte e cores da empresa (Verde, Preto/Chumbo, Branco) */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        :root {
+            --color-primary: #047857; /* Emerald-700, um verde institucional */
+            --color-secondary: #1f2937; /* Gray-800, chumbo para contraste */
+            --color-background: #f9fafb;
+            --color-red-active: #991b1b; /* Red-800 para o botão ativo */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--color-background);
+        }
+        
+        /* Estilos do Splash Screen */
+        #splashScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: white; 
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50; /* Acima de tudo */
+            opacity: 1;
+            transition: opacity 1.5s ease-out;
+        }
+        #splash-logo {
+            height: 150px;
+            opacity: 0;
+            transition: all 1s ease-in-out;
+            transform: scale(1.2);
+        }
+        #splash-slogan {
+            font-size: 1.25rem;
+            margin-top: 20px;
+            opacity: 0;
+            transition: opacity 1s ease-in 0.5s;
+        }
+
+        /* Estilos de transição para o logo no header */
+        .header-logo {
+            transition: all 1.5s ease-in-out;
+            height: 0px; /* Escondido inicialmente */
+            opacity: 0;
+        }
+        .header-logo-start {
+            height: 150px !important;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 51;
+        }
+
+        /* Estilos dos Cards de Métrica */
+        .metric-card {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-xl */
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.5s ease;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 3px solid #e5e7eb;
+        }
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .data-label {
+            text-transform: uppercase;
+            font-size: 0.875rem; /* text-sm */
+            color: #4b5563; /* Gray-600 */
+            font-weight: 500; /* Medium */
+            letter-spacing: 0.05em;
+        }
+
+        .data-value {
+            font-size: 2.25rem; /* text-4xl */
+            font-weight: 800; /* Extra bold */
+            margin-top: 0.25rem;
+            color: var(--color-secondary);
+        }
+
+        /* Estilos de Botões */
+        .btn-primary {
+            background-color: var(--color-primary);
+        }
+        .btn-primary:hover {
+            background-color: #059669; /* Emerald-600 mais escuro */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Estilo da Tabela */
+        .table-header {
+            background-color: var(--color-primary);
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+        }
+        .table-row:nth-child(even) {
+            background-color: #f3f4f6; /* Gray-100 para listras */
+        }
+
+        /* Estilo de cores dinâmicas de status */
+        .status-produtivo { border-color: #10b981 !important; color: #059669 !important; } /* Emerald */
+        .status-parado { border-color: #fbbf24 !important; color: #d97706 !important; } /* Amber */
+        .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; } /* Red */
+        .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; } /* Gray */
+
+    </style>
+</head>
+<body>
+
+    <!-- 1. SPLASH SCREEN (Abertura Animada) -->
+    <div id="splashScreen">
+        <img id="splash-logo" 
+             src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" 
+             alt="Logo Usina Pitangueiras" 
+             class="transition-all duration-1000 ease-in-out">
+        <p id="splash-slogan" class="text-gray-700 font-serif font-bold">A energia que move a região</p>
+    </div>
+
+    <!-- 2. CONTAINER PRINCIPAL DO APP (Invisível até o fim do Splash) -->
+    <div id="app-container" class="min-h-screen opacity-0 pointer-events-none transition-opacity duration-500">
+        
+        <!-- HEADER (Com o Logo em transição) -->
+        <header class="shadow-md bg-white sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                <img id="header-logo" 
+                     src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" 
+                     alt="Logo Usina Pitangueiras" 
+                     class="header-logo">
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Monitoramento Operacional</h1>
+                <div class="flex items-center space-x-4">
+                    <span id="readings-status" class="text-sm font-medium text-red-500">Firestore Log: Desconectado</span>
+                    <span id="limites-status" class="text-sm font-medium text-red-500">Firestore Limites: Desconectado</span>
+                    <button id="toggle-view-button" class="bg-gray-200 text-gray-700 hover:bg-gray-300 py-2 px-4 rounded-lg text-sm font-semibold transition duration-150 shadow-inner">
+                        Configurar Limites
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- CONTEÚDO PRINCIPAL (Dashboard e Configurações) -->
+        <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+
+            <!-- VISUALIZAÇÃO 1: DASHBOARD OPERACIONAL -->
+            <div id="dashboard-view">
+                <div class="mb-8 border-b pb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2>
+                    <p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p>
+                </div>
+                
+                <!-- Cards de Métricas e Status -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                    
+                    <!-- Card 1: Conexão ESP32 -->
+                    <div class="metric-card border-l-4 border-emerald-500">
+                        <p class="data-label">Conexão ESP32</p>
+                        <p class="data-value text-xl" id="esp32-status-value">N/A</p> 
+                    </div>
+                    
+                    <!-- Card 2: Última Profundidade (cm) -->
+                    <div class="metric-card border-l-4 border-indigo-500">
+                        <p class="data-label">Última Profundidade</p>
+                        <p class="data-value text-indigo-700" id="last-depth">0.00 cm</p>
+                    </div>
+
+                    <!-- Card 3: Média Últimas Leituras (cm) -->
+                    <div class="metric-card border-l-4 border-purple-500">
+                        <p class="data-label">Média Últimas Leituras</p>
+                        <p class="data-value text-purple-700" id="avg-depth">0.0 cm</p>
+                    </div>
+
+                    <!-- Card 4: Percentual Produtivo -->
+                    <div class="metric-card border-l-4 border-teal-500">
+                        <p class="data-label">Percentual Produtivo (24h)</p>
+                        <p class="data-value text-teal-700" id="productive-percent">0.0%</p>
+                    </div>
+                </div>
+
+                <!-- Status Atual e Limites Atuais -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                    <!-- Card 5: Status Atual (Borda Dinâmica) -->
+                    <div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8">
+                        <p class="data-label text-xl mb-2">Status Atual</p>
+                        <p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p>
+                        <p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p>
+                    </div>
+                    
+                    <!-- Card 6: Limites Operacionais Atuais (Lidos do Firestore) -->
+                    <div class="metric-card lg:col-span-2">
+                        <h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <p class="font-bold text-gray-800">Produtivo (Min/Max):</p>
+                                <!-- $ usa a sintaxe LaTeX para melhor formatação matemática -->
+                                <p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">10.0 / 50.0 cm</p>
+                            </div>
+                            <div>
+                                <p class="font-bold text-gray-800">Manutenção (Centro $\pm$ Tolerância):</p>
+                                <p id="limit-parado" class="text-lg text-red-600 font-semibold">70.0 $\pm$ 5.0 cm</p>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p>
+                    </div>
+                </div>
+
+                <!-- Histórico de Leituras (Tabela) -->
+                <div class="mt-12">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2>
+                        <!-- NOVO BOTÃO DE TESTE -->
+                        <button id="add-test-reading-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-semibold hover:bg-blue-700 transition duration-150 shadow-md">
+                            + Inserir Leitura de Teste
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto rounded-lg shadow-xl">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead>
+                                <tr class="table-header">
+                                    <th scope="col" class="px-6 py-3 text-left">Timestamp</th>
+                                    <th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th>
+                                    <th scope="col" class="px-6 py-3 text-left">Status Serviço</th>
+                                    <th scope="col" class="px-6 py-3 text-left">Conexão</th>
+                                </tr>
+                            </thead>
+                            <tbody id="readings-history" class="bg-white divide-y divide-gray-200">
+                                <!-- Linhas de dados serão inseridas aqui via JavaScript -->
+                                <tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada no Firestore.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div> <!-- Fim: dashboard-view -->
+
+            <!-- VISUALIZAÇÃO 2: CONFIGURAÇÃO DE LIMITES (Escondida por padrão) -->
+            <div id="config-view" class="hidden">
+                <div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
+                    <h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2>
+                    <p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento. As alterações são salvas no **Firestore** e aplicadas em tempo real.</p>
+                    
+                    <form id="limits-form">
+                        <fieldset class="space-y-6 mb-8 p-6 border rounded-lg">
+                            <legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend>
+                            <p class="text-sm text-gray-500">O equipamento é Produtivo quando a profundidade estiver entre Min e Max.</p>
+                            
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label>
+                                    <input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2" required>
+                                </div>
+                                <div>
+                                    <label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label>
+                                    <input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2" required>
+                                </div>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg">
+                            <legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend>
+                            <p class="text-sm text-gray-500">O equipamento está em Manutenção quando a profundidade estiver no Centro $\pm$ Tolerância.</p>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label>
+                                    <input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2" required>
+                                </div>
+                                <div>
+                                    <label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância ($\pm$ cm)</label>
+                                    <input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2" required>
+                                </div>
+                            </div>
+                        </fieldset>
+
+                        <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-md shadow-lg text-white btn-primary focus:outline-none focus:ring-2 focus:ring-offset-2 transition duration-150">
+                            Salvar Limites no Firestore
+                        </button>
+                    </form>
+                </div>
+            </div> <!-- Fim: config-view -->
+
+            <!-- Rodapé de Informação do Usuário e App -->
+            <div class="mt-12 pt-4 border-t text-sm text-gray-500 flex justify-between flex-wrap">
+                <div class="flex-shrink-0">
+                    <p>UserID: <code class="bg-gray-200 p-1 rounded font-mono" id="user-id">N/A</code></p>
+                    <p>AppID: <code class="bg-gray-200 p-1 rounded font-mono" id="app-id">N/A</code></p>
+                </div>
+                <div class="text-right flex-shrink-0 mt-2 sm:mt-0">
+                    <p>Desenvolvido para Usina Pitangueiras</p>
+                    <p class="text-xs">Versão 1.1.0 (API Firebase Firestore)</p>
+                </div>
+            </div>
+
+        </main>
+    </div> <!-- Fim: app-container -->
+
+    <script type="module">
+        // ====================================================================================
+        // === CORREÇÕES APLICADAS APENAS NA CONEXÃO FIREBASE ===
+        // ====================================================================================
+
+        // Importa módulos Firebase necessários
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        // Importações ATUALIZADAS para Firestore (incluindo query, setDoc, addDoc)
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, serverTimestamp, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        
+        // ✅ CORREÇÃO 1: Configuração CORRETA do Firebase
+        const FALLBACK_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyBN-jcSaOxiIg9H8Zc2MxdPoBe36g3qnV4", // ✅ CORRIGIDA: Adicionado o "c" faltante
+            authDomain: "monitoramento-esp32-2551e.firebaseapp.com",
+            databaseURL: "https://monitoramento-esp32-2551e-default-rtdb.firebaseio.com",
+            projectId: "monitoramento-esp32-2551e",
+            storageBucket: "monitoramento-esp32-2551e.firebasestorage.app",
+            messagingSenderId: "1026903641131",
+            appId: "1:1026903641131:web:86e847b5e600914b26ae6e"
+        };
+        
+        // ✅ CORREÇÃO 2: Caminhos CORRETOS baseados na sua estrutura real
+        const FIRESTORE_ROOT_PREFIX = 'artifacts/monitoramento-esp32-2551e/public/data';
+        const FIREBASE_LIMITS_PATH = `${FIRESTORE_ROOT_PREFIX}/operational_limits/EQP_USINA_01`;
+        const FIRESTORE_READINGS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/leituras_esp32`;
+
+        // Variáveis globais
+        let app, auth, db;
+        let currentUserId = 'N/A';
+        let readingsCache = []; // Cache das últimas leituras para cálculo de média e percentual
+
+        // ATENÇÃO: As configurações do Firebase e o token de autenticação são INJETADOS
+        // pelo ambiente de execução (Canvas). Usamos o fallback se a injeção falhar.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Tenta ler a configuração injetada, se falhar usa o FALLBACK
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Limites Operacionais (Fallback local até serem lidos/salvos no Firestore)
+        let currentLimits = {
+            produtivoMin: 10.0,
+            produtivoMax: 50.0,
+            paradoCentro: 70.0,
+            paradoTolerancia: 5.0
+        };
+        
+        // Caminhos dos documentos
+        const EQUIPMENT_ID = 'EQP_USINA_01';
+        
+        // Mapeamento de elementos DOM
+        const statusCard = document.getElementById('current-status-card');
+        const statusText = document.getElementById('status-value-text');
+        const lastDepthEl = document.getElementById('last-depth');
+        const avgDepthEl = document.getElementById('avg-depth');
+        const esp32StatusEl = document.getElementById('esp32-status-value');
+        const productivePercentEl = document.getElementById('productive-percent');
+        const readingsHistoryBody = document.getElementById('readings-history');
+        const limitProdutivoEl = document.getElementById('limit-produtivo');
+        const limitParadoEl = document.getElementById('limit-parado');
+        const readingsStatusEl = document.getElementById('readings-status');
+        const limitsStatusEl = document.getElementById('limites-status');
+        const firestorePathDisplayEl = document.getElementById('firestore-path-display');
+        const limitsForm = document.getElementById('limits-form');
+        const toggleViewButton = document.getElementById('toggle-view-button');
+        const dashboardView = document.getElementById('dashboard-view');
+        const configView = document.getElementById('config-view');
+        
+        // Função utilitária para formatar timestamp
+        function formatTimestamp(timestamp) {
+            let date;
+            if (timestamp && typeof timestamp.toDate === 'function') {
+                date = timestamp.toDate();
+            } else if (timestamp instanceof Date) {
+                date = timestamp;
+            } else {
+                return 'N/A';
+            }
+            return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+        }
+
+        // Função utilitária para mostrar caixa de diálogo customizada (Substitui alert())
+        function showMessage(title, message, type = 'success') {
+            const container = document.getElementById('app-container');
+            let bgColor = 'bg-emerald-500';
+            if (type === 'error') bgColor = 'bg-red-500';
+            if (type === 'warning') bgColor = 'bg-yellow-500';
+
+            const dialogHtml = `
+                <div id="custom-dialog" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full transform transition-all duration-300 scale-100">
+                        <div class="flex items-start">
+                            <div class="p-2 rounded-full ${bgColor} text-white mr-4">
+                                ${type === 'success' ? 
+                                    '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : 
+                                    '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
+                                }
+                            </div>
+                            <div>
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">${title}</h3>
+                                <div class="mt-2">
+                                    <p class="text-sm text-gray-500">${message}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-right">
+                            <button id="dialog-ok-button" class="py-2 px-4 ${bgColor} text-white rounded-md hover:opacity-90 transition duration-150">OK</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', dialogHtml);
+
+            document.getElementById('dialog-ok-button').addEventListener('click', () => {
+                document.getElementById('custom-dialog').remove();
+            });
+        }
+
+        // FUNÇÃO CENTRAL: Define o Status Operacional
+        function calculateStatus(depth, limits) {
+            // Trata o caso de ERRO SENSOR
+            if (depth < 0) {
+                return 'ERRO SENSOR';
+            }
+
+            const min = limits.produtivoMin;
+            const max = limits.produtivoMax;
+            const center = limits.paradoCentro;
+            const tol = limits.paradoTolerancia;
+            
+            // 1. Status: Manutenção (Profundidade h_Mesa ± Tolerância)
+            if (depth >= (center - tol) && depth <= (center + tol)) {
+                return 'Manutenção';
+            }
+            // 2. Status: Produtivo (Dentro da faixa ideal)
+            if (depth >= min && depth <= max) {
+                return 'Produtivo';
+            }
+            // 3. Status: Parado (Qualquer outro valor fora dos limites produtivos/manutenção)
+            return 'Parado';
+        }
+
+        // Função para renderizar o Status no Card com cores dinâmicas
+        function renderStatus(status, depth) {
+            statusText.textContent = status;
+            
+            // Remove todas as classes de status
+            statusCard.className = statusCard.className.split(' ').filter(c => 
+                !c.startsWith('status-') && !c.startsWith('border-')
+            ).join(' ');
+            
+            let colorClass = 'border-gray-500';
+            
+            // Adiciona a classe de status correspondente
+            if (status === 'Produtivo') {
+                statusCard.classList.add('status-produtivo');
+                colorClass = 'border-emerald-500';
+            } else if (status === 'Parado') {
+                statusCard.classList.add('status-parado');
+                colorClass = 'border-amber-500';
+            } else if (status === 'Manutenção') {
+                statusCard.classList.add('status-manutencao');
+                colorClass = 'border-red-500';
+            } else if (status === 'ERRO SENSOR' || status === 'Aguardando Dados') {
+                statusCard.classList.add('status-erro');
+                colorClass = 'border-gray-500';
+            }
+
+            // Garante que a borda principal tenha a cor do status
+            statusCard.classList.add(colorClass);
+
+            // Atualiza a última profundidade
+            lastDepthEl.textContent = `${depth.toFixed(2)} cm`;
+        }
+
+        // Função para atualizar os limites no formulário de configuração e no dashboard
+        function updateConfigForm(limits) {
+            document.getElementById('input-produtivo-min').value = limits.produtivoMin;
+            document.getElementById('input-produtivo-max').value = limits.produtivoMax;
+            document.getElementById('input-parado-centro').value = limits.paradoCentro;
+            document.getElementById('input-parado-tolerancia').value = limits.paradoTolerancia;
+
+            // Atualiza o card de limites no dashboard
+            limitProdutivoEl.innerHTML = `${limits.produtivoMin.toFixed(1)} / ${limits.produtivoMax.toFixed(1)} cm`;
+            // Atualiza o símbolo LaTeX para o display correto
+            limitParadoEl.innerHTML = `${limits.paradoCentro.toFixed(1)} $\\pm$ ${limits.paradoTolerancia.toFixed(1)} cm`;
+        }
+        
+        // ✅ CORREÇÃO 3: Listener do Firestore para Limites Operacionais - CORRIGIDO
+        function listenToLimits() {
+            if (!db || !currentUserId) {
+                console.error("Firestore não inicializado ou UserID ausente.");
+                limitsStatusEl.textContent = "Firestore Limites: Erro de Init";
+                limitsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
+                limitsStatusEl.classList.add('text-red-500');
+                return;
+            }
+
+            // ✅ CORREÇÃO: Caminho correto
+            firestorePathDisplayEl.textContent = FIREBASE_LIMITS_PATH; 
+            const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
+            
+            // Valores default para inicialização
+            const defaultLimits = {
+                produtivoMin: 10.0,
+                produtivoMax: 50.0,
+                paradoCentro: 70.0,
+                paradoTolerancia: 5.0,
+                equipamento: EQUIPMENT_ID,
+                createdAt: serverTimestamp()
+            };
+
+            onSnapshot(limitsDocRef, (docSnapshot) => {
+                if (docSnapshot.exists()) {
+                    const data = docSnapshot.data();
+                    
+                    // Garante que todos os campos são números
+                    currentLimits = {
+                        produtivoMin: parseFloat(data.produtivoMin) || defaultLimits.produtivoMin,
+                        produtivoMax: parseFloat(data.produtivoMax) || defaultLimits.produtivoMax,
+                        paradoCentro: parseFloat(data.paradoCentro) || defaultLimits.paradoCentro,
+                        paradoTolerancia: parseFloat(data.paradoTolerancia) || defaultLimits.paradoTolerancia,
+                    };
+
+                    updateConfigForm(currentLimits);
+
+                    limitsStatusEl.textContent = "Firestore Limites: Conectado (Atualizado)";
+                    limitsStatusEl.classList.remove('text-red-500', 'text-yellow-500');
+                    limitsStatusEl.classList.add('text-green-500');
+
+                    console.log("Limites operacionais atualizados:", currentLimits);
+                    // Re-processa o dashboard com os novos limites (se houver leituras em cache)
+                    updateDashboard(readingsCache);
+                } else {
+                    console.warn("Documento de limites não encontrado. Tentando definir valores iniciais se for a primeira vez.");
+                    
+                    // Se o documento não existe, tentamos criar, o que exige permissão de escrita.
+                    setDoc(limitsDocRef, defaultLimits, { merge: true })
+                        .then(() => console.log("Documento de limites inicializado com sucesso."))
+                        .catch(error => {
+                            // AQUI O ERRO DE PERMISSÃO DE ESCRITA SERÁ CAPTURADO SE O USUÁRIO NÃO TIVER 'WRITE'
+                            console.error("[ERRO ESCRITA PERMISSÃO] Falha ao criar documento de limites. Verifique as Regras de Segurança:", error);
+                        });
+                        
+                    limitsStatusEl.textContent = "Firestore Limites: Inicializando...";
+                    limitsStatusEl.classList.remove('text-green-500', 'text-red-500');
+                    limitsStatusEl.classList.add('text-yellow-500');
+                }
+            }, (error) => {
+                // Tratamento de erro de leitura (geralmente permissão insuficiente)
+                console.error("[CONSOLE_ERROR] Erro no listener do Firestore (Limites):", error);
+                limitsStatusEl.textContent = "Firestore Limites: ERRO REGRAS/PERMISSÃO"; // Status mais explícito
+                limitsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
+                limitsStatusEl.classList.add('text-red-500');
+            });
+        }
+        
+        // ✅ CORREÇÃO 4: Listener do Firestore para as Leituras do Sensor (Log Histórico) - CORRIGIDO
+        function listenToReadings() {
+            if (!db) {
+                console.error("Firestore não inicializado.");
+                readingsStatusEl.textContent = "Firestore Log: Erro de Init";
+                readingsStatusEl.classList.remove('text-green-500');
+                readingsStatusEl.classList.add('text-red-500');
+                return;
+            }
+
+            // ✅ CORREÇÃO: Caminho correto e query ordenada
+            const readingsColRef = collection(db, FIRESTORE_READINGS_COLLECTION_PATH);
+            const allReadingsQuery = query(readingsColRef, orderBy('timestamp', 'desc'), limit(20)); 
+            
+            console.log("Iniciando escuta no caminho:", FIRESTORE_READINGS_COLLECTION_PATH);
+
+            onSnapshot(allReadingsQuery, (snapshot) => {
+                readingsStatusEl.textContent = "Firestore Log: Conectado";
+                readingsStatusEl.classList.remove('text-red-500', 'text-yellow-500');
+                readingsStatusEl.classList.add('text-green-500');
+
+                if (snapshot.size > 0) {
+                    readingsCache = [];
+                    snapshot.forEach((doc) => {
+                        const data = doc.data();
+
+                        // Garante que os campos chave existem
+                        if (data && typeof data.prof_media === 'number' && data.timestamp) {
+                            readingsCache.push({
+                                timestamp: data.timestamp,
+                                profMedia: data.prof_media,
+                                statusServico: data.status_servico || 'N/A',
+                                conexao: data.status_conexao || 'N/A'
+                            });
+                        }
+                    });
+                    
+                    // Já vem ordenado pela query
+                    updateDashboard(readingsCache);
+                } else {
+                    readingsHistoryBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada no Firestore.</td></tr>';
+                    updateDashboard([]); // Limpa o dashboard se não houver dados
+                }
+            }, (error) => {
+                // Tratamento de erro de leitura (geralmente permissão insuficiente)
+                console.error("[CONSOLE_ERROR] Erro no listener do Firestore (Log):", error);
+                readingsStatusEl.textContent = "Firestore Log: ERRO REGRAS/PERMISSÃO"; // Status mais explícito
+                readingsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
+                readingsStatusEl.classList.add('text-red-500');
+            });
+        }
+        
+        // Função que processa os dados do Firestore e atualiza todos os elementos do Dashboard
+        function updateDashboard(readings) {
+            if (readings.length === 0) {
+                // Se não há leituras, reseta os cards de valor
+                lastDepthEl.textContent = `0.00 cm`;
+                avgDepthEl.textContent = `0.0 cm`;
+                productivePercentEl.textContent = `0.0%`;
+                esp32StatusEl.textContent = `N/A`;
+                esp32StatusEl.className = `data-value text-xl text-gray-400`;
+                renderStatus('Aguardando Dados', 0);
+                return;
+            }
+
+            // 1. Última Leitura
+            const latestReading = readings[0];
+            const latestDepth = latestReading.profMedia;
+            
+            // 2. Cálculo do Status
+            const currentStatus = calculateStatus(latestDepth, currentLimits);
+            renderStatus(currentStatus, latestDepth);
+
+            // 3. Status de Conexão ESP32
+            esp32StatusEl.textContent = latestReading.conexao || 'N/A';
+            esp32StatusEl.className = `data-value text-xl ${latestReading.conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
+
+            // 4. Média das Últimas Leituras (Baseado nas leituras limitadas)
+            const totalDepth = readings.reduce((sum, r) => sum + r.profMedia, 0);
+            const avgDepth = totalDepth / readings.length;
+            avgDepthEl.textContent = `${avgDepth.toFixed(2)} cm`;
+            
+            // 5. Percentual Produtivo (NOTA: Atualmente usa a amostra limitada de 20 leituras)
+            const productiveCount = readings.filter(r => calculateStatus(r.profMedia, currentLimits) === 'Produtivo').length;
+            const productivePercentage = (readings.length > 0) ? (productiveCount / readings.length) * 100 : 0;
+            productivePercentEl.textContent = `${productivePercentage.toFixed(1)}%`;
+
+
+            // 6. Atualiza Tabela de Histórico
+            readingsHistoryBody.innerHTML = '';
+            readings.forEach((r, index) => {
+                const status = calculateStatus(r.profMedia, currentLimits);
+                let statusClass = '';
+                if (status === 'Produtivo') statusClass = 'text-emerald-600 font-medium';
+                else if (status === 'Parado') statusClass = 'text-amber-600 font-medium';
+                else if (status === 'Manutenção') statusClass = 'text-red-600 font-medium';
+                else statusClass = 'text-gray-500';
+
+                const row = document.createElement('tr');
+                row.className = 'table-row';
+                row.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${formatTimestamp(r.timestamp)}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${r.profMedia.toFixed(2)}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm ${statusClass}">${status}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${r.conexao}</td>
+                `;
+                readingsHistoryBody.appendChild(row);
+            });
+        }
+
+        // ✅ CORREÇÃO 5: Função para adicionar uma Leitura de Teste - CORRIGIDA
+        async function addTestReading() {
+            if (!db) return showMessage('Erro', 'Banco de dados não conectado.', 'error');
+
+            const readingsColRef = collection(db, FIRESTORE_READINGS_COLLECTION_PATH);
+            
+            // Gera valores mockados aleatórios
+            const mockDepth = (Math.random() * 80 + 5).toFixed(2); // Profundidade entre 5 e 85 cm
+            const mockConnection = Math.random() > 0.1 ? 'OK' : 'ERROR'; // 90% OK
+            const statusServico = calculateStatus(parseFloat(mockDepth), currentLimits); // Usa os limites atuais para definir o status
+
+            const testData = {
+                equipamento: EQUIPMENT_ID,
+                prof_media: parseFloat(mockDepth),
+                sen_1: -1,
+                sen_2: -1,
+                sen_3: parseFloat(mockDepth),
+                status_conexao: mockConnection,
+                status_servico: statusServico,
+                timestamp: serverTimestamp() // ✅ CORREÇÃO: Usar serverTimestamp do Firebase
+            };
+
+            try {
+                // Adiciona o documento de teste com os mesmos campos do seu ESP32
+                await addDoc(readingsColRef, testData);
+                showMessage('Leitura de Teste Inserida', `Profundidade de ${mockDepth} cm adicionada. A tabela deve atualizar automaticamente!`, 'success');
+            } catch (error) {
+                console.error("Erro ao adicionar leitura de teste:", error);
+                // Mensagem que alerta sobre a permissão de escrita
+                showMessage('Erro ao Inserir', 'Falha ao inserir leitura. Se você publicou as regras de segurança, verifique o console para mais detalhes!', 'error');
+            }
+        }
+        
+        // Event listener para o botão de Leitura de Teste
+        document.getElementById('add-test-reading-btn').addEventListener('click', addTestReading);
+
+        // ✅ CORREÇÃO 6: Função de envio do formulário de limites (Firestore Write) - CORRIGIDA
+        limitsForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!db) {
+                showMessage('Erro de Conexão', 'O Firebase não está inicializado. Tente recarregar a aplicação.', 'error');
+                return;
+            }
+
+            const newLimits = {
+                produtivoMin: parseFloat(document.getElementById('input-produtivo-min').value),
+                produtivoMax: parseFloat(document.getElementById('input-produtivo-max').value),
+                paradoCentro: parseFloat(document.getElementById('input-parado-centro').value),
+                paradoTolerancia: parseFloat(document.getElementById('input-parado-tolerancia').value),
+                equipamento: EQUIPMENT_ID,
+                updatedAt: serverTimestamp() // ✅ CORREÇÃO: Adicionar timestamp de atualização
+            };
+
+            // Validação simples
+            if (newLimits.produtivoMin >= newLimits.produtivoMax) {
+                showMessage('Erro de Validação', 'A Profundidade Mínima Produtiva deve ser menor que a Máxima.', 'warning');
+                return;
+            }
+
+            try {
+                const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
+                // ✅ CORREÇÃO: Usar { merge: true } para não sobrescrever campos existentes
+                await setDoc(limitsDocRef, newLimits, { merge: true }); 
+                showMessage('Sucesso', 'Os novos limites operacionais foram salvos no Firestore com sucesso!', 'success');
+            } catch (error) {
+                console.error("[ERRO PERMISSÃO] Erro ao salvar limites:", error);
+                // Mensagem específica para o usuário
+                showMessage('Erro de Permissão (Escrever)', 'Não foi possível salvar os limites. Por favor, verifique as Regras de Segurança do Firestore para permitir escrita no caminho.', 'error');
+            }
+        });
+
+        // Toggle entre Dashboard e Configuração
+        toggleViewButton.addEventListener('click', () => {
+            if (dashboardView.classList.contains('hidden')) {
+                dashboardView.classList.remove('hidden');
+                configView.classList.add('hidden');
+                toggleViewButton.textContent = 'Configurar Limites';
+            } else {
+                dashboardView.classList.add('hidden');
+                configView.classList.remove('hidden');
+                toggleViewButton.textContent = 'Voltar ao Dashboard';
+            }
+        });
+        
+        // ✅ CORREÇÃO 7: Inicialização do Firebase e Autenticação - CORRIGIDA
+        async function initializeAppAndAuth() {
+            // Verifica se a configuração foi fornecida (seja via injeção ou fallback)
+            if (!firebaseConfig || !firebaseConfig.apiKey) {
+                 console.error("Configuração do Firebase não encontrada. Verifique as variáveis de ambiente ou o fallback.");
+                 showMessage('Erro Crítico', 'Configuração do Firebase ausente. A aplicação não pode se conectar ao Firestore.', 'error');
+                 return;
+            }
+
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Configuração da persistência da sessão
+                await setPersistence(auth, browserSessionPersistence);
+
+                // Autenticação com o token customizado ou anônima
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("Autenticação via token customizado concluída.");
+                } else {
+                    // Tenta login anônimo
+                    await signInAnonymously(auth);
+                    console.log("Autenticação anônima concluída.");
+                }
+
+                // Listener do estado de autenticação
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        document.getElementById('user-id').textContent = currentUserId;
+                        document.getElementById('app-id').textContent = appId;
+                        console.log("Usuário autenticado:", currentUserId);
+                        
+                        // Inicia os listeners de dados APÓS a autenticação
+                        listenToLimits();
+                        listenToReadings(); // Conecta ao Firestore Log
+                    } else {
+                        // Caso a autenticação falhe, ainda exibe o erro no console
+                        console.log("Usuário deslogado ou anonimamente logado.");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Erro fatal na inicialização do Firebase:", error);
+                showMessage('Erro Crítico de Inicialização (Firebase)', 
+                    `O login falhou. Por favor, verifique se a chave API é válida e se o Firebase Auth está ativado: ${error.message}.`, 
+                    'error');
+            }
+        }
+
+        // Lógica de Splash Screen (Animation) - MANTIDA ORIGINAL
+        window.onload = function () {
+            const splashScreen = document.getElementById('splashScreen');
+            const splashLogo = document.getElementById('splash-logo');
+            const splashSlogan = document.getElementById('splash-slogan');
+            const headerLogo = document.getElementById('header-logo');
+
+            // 1. Mostrar logo e slogan no splash screen
+            setTimeout(() => {
+                splashLogo.style.opacity = '1';
+                splashLogo.style.transform = 'scale(1)'; // Efeito de zoom
+                headerLogo.classList.add('header-logo-start'); // Posiciona o logo no centro (inicialmente)
+            }, 100); 
+
+            setTimeout(() => {
+                splashSlogan.style.opacity = '1';
+            }, 600); 
+
+            // 2. Iniciar animação e esconder splash após 3.5s
+            setTimeout(() => {
+                splashScreen.style.opacity = '0'; // Fade out
+                
+                // Mover e diminuir o logo para o header
+                headerLogo.classList.remove('header-logo-start'); 
+                headerLogo.classList.add('h-10'); 
+                headerLogo.style.opacity = '1';
+                headerLogo.style.transform = 'none';
+
+                // Mostrar o conteúdo principal
+                document.getElementById('app-container').classList.remove('opacity-0', 'pointer-events-none');
+                
+                // Remover splash e inicializar o app (Firebase) após a transição
+                setTimeout(() => {
+                    splashScreen.remove();
+                    initializeAppAndAuth();
+                }, 1500); 
+
+            }, 3500); // 3.5 segundos de duração do splash total
+        };
+
+    </script>
+</body>
+</html>
