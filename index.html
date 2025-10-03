@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v4.0</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v5.0</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js -->
@@ -42,10 +42,11 @@
         .metric-card:hover { transform: translateY(-5px); }
 
         .tab-button { transition: all 0.2s ease-in-out; border-bottom: 4px solid transparent; padding: 1rem 0.25rem; font-weight: 600; color: #6b7280; }
-        #tabs-container.sulcador .tab-button[data-tab="sulcador"] { border-color: var(--color-primary); color: var(--color-primary); }
-        #tabs-container.fertirrigacao .tab-button[data-tab="fertirrigacao"] { border-color: var(--color-fertirrigacao); color: var(--color-fertirrigacao); }
-        #tabs-container.limites .tab-button[data-tab="limites"] { border-color: var(--color-limites); color: var(--color-limites); }
-        #tabs-container.cadastro .tab-button[data-tab="cadastro"] { border-color: var(--color-cadastro); color: var(--color-cadastro); }
+        .tab-button.active { font-weight: 700; }
+        #tabs-container.sulcador .tab-button[data-tab="sulcador"].active { border-color: var(--color-primary); color: var(--color-primary); }
+        #tabs-container.fertirrigacao .tab-button[data-tab="fertirrigacao"].active { border-color: var(--color-fertirrigacao); color: var(--color-fertirrigacao); }
+        #tabs-container.limites .tab-button[data-tab="limites"].active { border-color: var(--color-limites); color: var(--color-limites); }
+        #tabs-container.cadastro .tab-button[data-tab="cadastro"].active { border-color: var(--color-cadastro); color: var(--color-cadastro); }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
@@ -60,8 +61,8 @@
         .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; }
         .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; }
 
-        #request-login-modal-content { transition: opacity 0.3s ease-out, transform 0.3s ease-out; transform: scale(0.95); opacity: 0; }
-        #request-login-modal:not(.hidden) #request-login-modal-content { transform: scale(1); opacity: 1; }
+        .modal-content { transition: opacity 0.3s ease-out, transform 0.3s ease-out; transform: scale(0.95); opacity: 0; }
+        .modal-container:not(.hidden) .modal-content { transform: scale(1); opacity: 1; }
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
     </style>
@@ -71,10 +72,11 @@
     <div id="login-screen" class="min-h-screen items-center justify-center bg-gray-100 active p-4"></div>
     <div id="splashScreen" class="fixed inset-0 bg-white flex flex-col items-center justify-center z-50"></div>
     <div id="app-container" class="min-h-screen"></div>
+    <div id="modal-placeholder"></div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, collection, query, serverTimestamp, orderBy, limit, getDoc, updateDoc, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
         const FIREBASE_CONFIG = {
@@ -156,6 +158,8 @@
                     uid: firebaseUser.uid,
                     email: firebaseUser.email,
                     displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+                    customId: '',
+                    photoURL: firebaseUser.photoURL || '',
                     role: 'Pendente',
                     permissions: [],
                     createdAt: serverTimestamp()
@@ -172,7 +176,7 @@
                 await signInWithPopup(auth, provider);
             } catch (error) {
                 console.error("Erro no login com Google:", error);
-                showMessage('Erro', 'Não foi possível fazer login com o Google.', 'error');
+                showMessage('Erro', `Não foi possível fazer login com o Google. (${error.code})`, 'error');
             }
         }
 
@@ -258,9 +262,10 @@
                 unsubscribeReadings();
                 signOut(auth);
             });
+            document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
             setupTabNavigation();
             
-            if (currentUserProfile.role === 'Master' || (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites'))) {
+            if (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites')) {
                  document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
             }
 
@@ -305,6 +310,20 @@
             dialogContainer.innerHTML = `<div class="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full"><div class="flex items-start"><div class="p-2 rounded-full ${bgColor} text-white mr-4">${type === 'success' ? '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'}</div><div><h3 class="text-lg font-medium text-gray-900">${title}</h3><div class="mt-2"><p class="text-sm text-gray-500">${message}</p></div></div></div><div class="mt-5 text-right"><button id="dialog-ok-button" class="py-2 px-4 ${bgColor} text-white rounded-md text-sm font-semibold">OK</button></div></div>`;
             document.body.appendChild(dialogContainer);
             dialogContainer.querySelector('#dialog-ok-button')?.addEventListener('click', () => dialogContainer.remove());
+        }
+
+        async function handlePasswordReset() {
+            const email = auth.currentUser.email;
+            if (!email) {
+                return showMessage('Erro', 'Não foi possível identificar o seu e-mail.', 'error');
+            }
+            try {
+                await sendPasswordResetEmail(auth, email);
+                showMessage('Verifique seu E-mail', `Um link para redefinição de senha foi enviado para ${email}.`, 'success');
+            } catch (error) {
+                console.error("Erro ao enviar e-mail de redefinição de senha:", error);
+                showMessage('Erro', 'Não foi possível enviar o e-mail de redefinição de senha.', 'error');
+            }
         }
 
         function calculateStatus(depth, limits) {
@@ -503,42 +522,62 @@
                 showMessage('Sucesso', 'Limites operacionais salvos no Firestore!', 'success');
             } catch (error) {
                 console.error("Erro ao salvar limites:", error);
-                showMessage('Erro de Permissão', 'Não foi possível salvar os limites.', 'error');
+                showMessage('Erro de Permissão', 'Não foi possível salvar os limites. Verifique as regras do Firestore.', 'error');
             }
         }
         
         async function handleAddUser(e) {
             e.preventDefault();
-            const email = e.target.elements['new-user-email'].value;
-            const password = e.target.elements['new-user-password'].value;
-            const role = 'Operação'; // Por padrão, usuários criados manualmente são Operação
+            const form = e.target;
+            const email = form.elements['new-user-email'].value;
+            const password = form.elements['new-user-password'].value;
+            const displayName = form.elements['new-user-name'].value;
+            const customId = form.elements['new-user-id'].value;
 
+            if (!displayName) {
+                return showMessage('Erro', 'O campo "Nome do Usuário" é obrigatório.', 'error');
+            }
+            
             try {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-
+                // É necessário uma função de back-end (Cloud Function) para criar um usuário de autenticação
+                // sem fazer login. Este método é uma alternativa que cria um perfil "Pendente"
+                // que o usuário final pode "reivindicar" ao tentar se registrar com o mesmo e-mail.
+                // A abordagem mais segura seria usar Cloud Functions.
+                
+                // Por enquanto, apenas criamos o perfil no Firestore.
+                // Para criar a autenticação, precisaríamos de uma função de back-end.
+                // A linha abaixo é um placeholder para essa lógica.
+                // const userCredential = await createUserWithEmailAndPassword(getAuth(initializeApp(FIREBASE_CONFIG, 'temp')), email, password);
+                
                 const newUserProfile = {
-                    uid: user.uid,
-                    email: user.email,
-                    displayName: user.email.split('@')[0],
-                    role: role,
+                    // uid: userCredential.user.uid, // Viria da criação de autenticação
+                    email: email,
+                    displayName: displayName,
+                    customId: customId,
+                    photoURL: '',
+                    role: 'Operação', // Padrão
                     permissions: [],
                     createdAt: serverTimestamp()
                 };
-                await setDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, user.uid), newUserProfile);
-                
-                showMessage('Sucesso', `Utilizador ${email} criado com sucesso!`, 'success');
-                e.target.reset();
+
+                // Como não podemos criar Auth para outro usuário, vamos apenas criar o perfil.
+                // Isso requer regras de segurança que permitam ao Master criar documentos na coleção 'users'.
+                const userRef = doc(collection(db, FIRESTORE_USERS_COLLECTION_PATH));
+                await setDoc(userRef, { ...newUserProfile, uid: userRef.id, isManual: true });
+
+                showMessage('Sucesso', `Perfil para ${email} criado! O usuário precisa se registrar com este e-mail para ativar a conta.`, 'success');
+                form.reset();
                 loadAdminData('gerenciar');
+
             } catch(error) {
-                let msg = 'Não foi possível criar o utilizador.';
-                if (error.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso.';
-                if (error.code === 'auth/weak-password') msg = 'A senha deve ter no mínimo 6 caracteres.';
+                console.error("Erro ao criar usuário:", error);
+                let msg = 'Não foi possível criar o perfil do utilizador.';
+                if (error.code === 'permission-denied') msg = 'Erro de permissão ao criar o perfil no Firestore.';
                 showMessage('Erro', msg, 'error');
             }
         }
         
-        // --- NOVAS FUNÇÕES DE ADMINISTRAÇÃO ---
+        // --- FUNÇÕES DE ADMINISTRAÇÃO (COM MODAIS CUSTOMIZADOS) ---
         function setupAdminTabs() {
             const adminTabsContainer = document.getElementById('admin-sub-tabs');
             adminTabsContainer?.addEventListener('click', (e) => {
@@ -565,14 +604,18 @@
                 q = query(collection(db, FIRESTORE_USERS_COLLECTION_PATH), where("role", "!=", "Pendente"));
             }
 
-            const querySnapshot = await getDocs(q);
-            if (querySnapshot.empty) {
-                container.innerHTML = `<p class="text-gray-500">Nenhum usuário encontrado.</p>`;
-                return;
+            try {
+                const querySnapshot = await getDocs(q);
+                if (querySnapshot.empty) {
+                    container.innerHTML = `<p class="text-gray-500">Nenhum usuário encontrado.</p>`;
+                    return;
+                }
+                container.innerHTML = querySnapshot.docs.map(doc => getUserCardHTML(doc.data(), tab)).join('');
+                attachAdminButtonListeners(container);
+            } catch (error) {
+                console.error(`Erro ao carregar dados de ${tab}:`, error);
+                container.innerHTML = `<p class="text-red-500">Falha ao carregar dados. Verifique as permissões do Firestore.</p>`;
             }
-            
-            container.innerHTML = querySnapshot.docs.map(doc => getUserCardHTML(doc.data(), tab)).join('');
-            attachAdminButtonListeners(container);
         }
 
         function getUserCardHTML(user, type) {
@@ -581,76 +624,132 @@
                 return `<div class="p-4 border rounded-lg flex justify-between items-center" id="user-card-${user.uid}">
                             <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
                             <div class="flex gap-2">
-                                <button data-uid="${user.uid}" class="approve-user-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Aprovar</button>
-                                <button data-uid="${user.uid}" class="reject-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Rejeitar</button>
+                                <button data-uid="${user.uid}" data-action="approve" class="action-user-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Aprovar</button>
+                                <button data-uid="${user.uid}" data-action="reject" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Rejeitar</button>
                             </div>
                         </div>`;
-            } else { // gerenciar
+            } else {
                 return `<div class="p-4 border rounded-lg" id="user-card-${user.uid}">
                             <div class="flex justify-between items-center">
                                 <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
-                                <button data-uid="${user.uid}" class="manage-user-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Gerenciar</button>
+                                <div class="flex gap-2">
+                                    <button data-uid="${user.uid}" data-action="manage" class="action-user-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Editar</button>
+                                    <button data-uid="${user.uid}" data-action="delete" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Excluir</button>
+                                </div>
                             </div>
                             <div class="mt-2 text-xs text-gray-500">
                                 <p><strong>Nível:</strong> ${user.role}</p>
-                                ${user.role === 'Operação' ? `<p><strong>Permissões:</strong> ${permissions}</p>` : ''}
+                                ${user.role === 'Operação' || user.role === 'Lider' ? `<p><strong>Permissões:</strong> ${permissions}</p>` : ''}
                             </div>
                         </div>`;
             }
         }
 
         function attachAdminButtonListeners(container) {
-            container.querySelectorAll('.approve-user-btn').forEach(btn => btn.addEventListener('click', e => approveUser(e.target.dataset.uid)));
-            container.querySelectorAll('.reject-user-btn').forEach(btn => btn.addEventListener('click', e => rejectUser(e.target.dataset.uid)));
-            container.querySelectorAll('.manage-user-btn').forEach(btn => btn.addEventListener('click', e => manageUser(e.target.dataset.uid)));
+            container.querySelectorAll('.action-user-btn').forEach(btn => btn.addEventListener('click', e => {
+                const uid = e.target.dataset.uid;
+                const action = e.target.dataset.action;
+                if (action === 'delete' || action === 'reject') {
+                    showConfirmationModal('Tem certeza que deseja excluir este perfil de usuário? A autenticação do usuário não será removida.', () => deleteUserProfile(uid));
+                } else {
+                    openManagementModal(uid, action === 'approve');
+                }
+            }));
         }
 
-        async function approveUser(uid) {
-            const newRole = prompt("Aprovar usuário. Defina o nível: Master, Lider, ou Operação", "Operação");
-            if (newRole && ['Master', 'Lider', 'Operação'].includes(newRole)) {
-                await updateDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid), { role: newRole });
-                showMessage('Sucesso', 'Usuário aprovado!', 'success');
+        async function deleteUserProfile(uid) {
+            try {
+                await deleteDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid));
+                showMessage('Sucesso', 'Perfil de usuário removido do banco de dados.', 'success');
                 loadAdminData('pendentes');
                 loadAdminData('gerenciar');
-            } else if(newRole !== null) {
-                showMessage('Erro', 'Nível inválido. Use Master, Lider ou Operação.', 'error');
-            }
-        }
-
-        async function rejectUser(uid) {
-            if (confirm('Tem certeza que deseja rejeitar este usuário? A conta de autenticação NÃO será removida, apenas o registro de perfil.')) {
-                await deleteDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid));
-                showMessage('Sucesso', 'Usuário rejeitado e removido.', 'success');
-                loadAdminData('pendentes');
+            } catch(error) {
+                console.error("Erro ao excluir usuário:", error);
+                showMessage('Erro de Permissão', 'Não foi possível excluir o perfil do usuário. Verifique as regras do Firestore.', 'error');
             }
         }
         
-        async function manageUser(uid) {
-            const userRef = doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid);
-            const userDoc = await getDoc(userRef);
-            if(!userDoc.exists()) return showMessage('Erro', 'Usuário não encontrado.', 'error');
-            const userData = userDoc.data();
+        async function openManagementModal(uid, isApproval) {
+            try {
+                const userRef = doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid);
+                const userDoc = await getDoc(userRef);
+                if (!userDoc.exists()) return showMessage('Erro', 'Usuário não encontrado.', 'error');
+                const userData = userDoc.data();
 
-            const newRole = prompt("Gerenciar usuário. Defina o nível: Master, Lider, ou Operação", userData.role);
-            if (!newRole || !['Master', 'Lider', 'Operação'].includes(newRole)) {
-                if(newRole !== null) showMessage('Erro', 'Nível inválido.', 'error');
-                return;
-            }
-            
-            let permissions = [];
-            if (newRole === 'Operação') {
-                const sulcador = confirm("Permitir acesso à aba Sulcador?");
-                const fertirrigacao = confirm("Permitir acesso à aba Fertirrigação?");
-                const limites = confirm("Permitir acesso à aba Limites?");
-                if(sulcador) permissions.push('sulcador');
-                if(fertirrigacao) permissions.push('fertirrigacao');
-                if(limites) permissions.push('limites');
-            }
+                const modalPlaceholder = document.getElementById('modal-placeholder');
+                modalPlaceholder.innerHTML = getManagementModalHTML(userData, isApproval);
+                const modal = document.getElementById('management-modal');
+                const form = document.getElementById('management-form');
+                const permissionsDiv = document.getElementById('permissions-div');
 
-            await updateDoc(userRef, { role: newRole, permissions: permissions });
-            showMessage('Sucesso', 'Usuário atualizado!', 'success');
-            loadAdminData('gerenciar');
+                form.querySelectorAll('input[name="role"]').forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        permissionsDiv.classList.toggle('hidden', e.target.value === 'Master');
+                    });
+                });
+                
+                modal.classList.remove('hidden');
+
+                const closeModal = () => modal.remove();
+                modal.addEventListener('click', (e) => {
+                    if (e.target.id === 'management-modal' || e.target.id === 'close-management-modal' || e.target.id === 'cancel-management') {
+                        closeModal();
+                    }
+                });
+
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const newRole = form.role.value;
+                    let permissions = [];
+                    if (newRole !== 'Master') {
+                        form.querySelectorAll('input[name="permissions"]:checked').forEach(checkbox => {
+                            permissions.push(checkbox.value);
+                        });
+                    }
+                    
+                    try {
+                        await updateDoc(userRef, { role: newRole, permissions: permissions });
+                        showMessage('Sucesso', 'Usuário atualizado!', 'success');
+                        if (isApproval) {
+                            loadAdminData('pendentes');
+                        }
+                        loadAdminData('gerenciar');
+                        closeModal();
+                    } catch (error) {
+                        console.error("Erro ao gerenciar usuário:", error);
+                        showMessage('Erro de Permissão', 'Não foi possível atualizar o usuário. Verifique as regras do Firestore.', 'error');
+                    }
+                });
+            } catch (error) {
+                console.error("Erro ao abrir modal de gerenciamento:", error);
+                showMessage('Erro', 'Não foi possível carregar os dados do usuário. Verifique as regras do Firestore.', 'error');
+            }
         }
+
+        function showConfirmationModal(message, onConfirm) {
+            const modalPlaceholder = document.getElementById('modal-placeholder');
+            modalPlaceholder.innerHTML = `<div id="confirmation-modal" class="modal-container fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                <div class="modal-content bg-white rounded-lg shadow-2xl p-8 max-w-sm w-full">
+                    <h3 class="text-lg font-bold mb-4">Confirmação</h3>
+                    <p class="mb-6">${message}</p>
+                    <div class="flex justify-end gap-4">
+                        <button id="cancel-confirmation" class="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
+                        <button id="confirm-action" class="px-4 py-2 bg-red-600 text-white rounded">Confirmar</button>
+                    </div>
+                </div>
+            </div>`;
+            const modal = document.getElementById('confirmation-modal');
+            const closeModal = () => modal.remove();
+            
+            modal.addEventListener('click', (e) => {
+                if(e.target.id === 'confirmation-modal' || e.target.id === 'cancel-confirmation') closeModal();
+            });
+            document.getElementById('confirm-action').addEventListener('click', () => {
+                onConfirm();
+                closeModal();
+            });
+        }
+
 
         // --- HTML TEMPLATES ---
         function getLoginHTML() { 
@@ -672,8 +771,8 @@
                     </div>
                 </form>
             </div>
-            <div id="request-login-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
-                 <div id="request-login-modal-content" class="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full relative" onclick="event.stopPropagation()">
+            <div id="request-login-modal" class="modal-container hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                 <div class="modal-content bg-white rounded-lg shadow-2xl p-8 max-w-md w-full relative" onclick="event.stopPropagation()">
                      <h2 class="text-2xl font-bold text-gray-900 mb-6">Solicitar Acesso</h2>
                      <button id="close-modal-button" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
                      <form id="request-login-form" class="space-y-4">
@@ -691,34 +790,68 @@
         
         function getAppHTML(user, profile) {
             const username = profile.displayName || user.email.split('@')[0];
-            const canSee = (tab) => profile.role === 'Master' || profile.role === 'Lider' || (profile.permissions && profile.permissions.includes(tab));
+            const canSee = (tab) => {
+                if (profile.role === 'Master') return true;
+                return profile.permissions && profile.permissions.includes(tab);
+            };
+
+            const allTabs = ['sulcador', 'fertirrigacao', 'limites'];
+            if (profile.role === 'Master') allTabs.push('cadastro');
+            
+            const visibleTabs = allTabs.filter(canSee);
+            const firstVisibleTab = visibleTabs[0] || null;
+
+            const initials = username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const avatar = profile.photoURL 
+                ? `<img src="${profile.photoURL}" alt="Avatar" class="h-12 w-12 rounded-full object-cover">`
+                : `<div class="h-12 w-12 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xl font-bold">${initials}</div>`;
 
             return `
                 <header class="shadow-md bg-white sticky top-0 z-40">
                     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex justify-between items-center">
                         <img id="header-logo" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras" class="header-logo opacity-0">
-                        <h1 class="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight">Monitoramento Operacional</h1>
-                        <div class="flex items-center space-x-4"><span class="hidden sm:block text-sm font-medium text-gray-600">${username} (${profile.role})</span><button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg text-sm">Sair</button></div>
+                        <h1 class="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight hidden sm:block">Monitoramento Operacional</h1>
+                        <div class="flex items-center space-x-4">
+                            ${avatar}
+                            <div>
+                                <p class="font-bold text-sm">${username}</p>
+                                ${profile.customId ? `<p class="text-xs text-gray-500">ID: ${profile.customId}</p>` : ''}
+                            </div>
+                            <button id="change-password-button" class="bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-3 rounded-lg text-sm">Trocar Senha</button>
+                            <button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg text-sm">Sair</button>
+                        </div>
                     </div>
-                    <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 sulcador">
-                        ${canSee('sulcador') ? `<button class="tab-button active" data-tab="sulcador">Sulcador</button>` : ''}
-                        ${canSee('fertirrigacao') ? `<button class="tab-button" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
-                        ${canSee('limites') ? `<button class="tab-button" data-tab="limites">Limites</button>` : ''}
-                        ${profile.role === 'Master' ? `<button class="tab-button" data-tab="cadastro">Cadastro</button>` : ''}
+                    <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${firstVisibleTab || ''}">
+                        ${canSee('sulcador') ? `<button class="tab-button ${firstVisibleTab === 'sulcador' ? 'active' : ''}" data-tab="sulcador">Sulcador</button>` : ''}
+                        ${canSee('fertirrigacao') ? `<button class="tab-button ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
+                        ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Config Impl</button>` : ''}
+                        ${profile.role === 'Master' ? `<button class="tab-button ${firstVisibleTab === 'cadastro' ? 'active' : ''}" data-tab="cadastro">Cadastro</button>` : ''}
                     </nav>
                 </header>
                 <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-                    ${canSee('sulcador') ? `<div id="sulcador-tab" class="tab-content active"><div class="mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2><p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div><p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div></div>` : ''}
-                    ${canSee('fertirrigacao') ? `<div id="fertirrigacao-tab" class="tab-content text-center py-20"><h2 class="text-9xl">🚧</h2><p class="text-4xl font-bold text-gray-500 mt-4">Em Construção</p></div>` : ''}
-                    ${canSee('limites') ? `<div id="limites-tab" class="tab-content"><div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500"><h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2><p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento.</p><form id="limits-form"><fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset><fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset><button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Limites no Firestore</button></form></div></div>` : ''}
-                    ${profile.role === 'Master' ? getAdminHTML() : ''}
+                    ${canSee('sulcador') ? `<div id="sulcador-tab" class="tab-content ${firstVisibleTab === 'sulcador' ? 'active' : ''}">${getSulcadorTabHTML()}</div>` : ''}
+                    ${canSee('fertirrigacao') ? `<div id="fertirrigacao-tab" class="tab-content ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}">${getFertirrigacaoTabHTML()}</div>` : ''}
+                    ${canSee('limites') ? `<div id="limites-tab" class="tab-content ${firstVisibleTab === 'limites' ? 'active' : ''}">${getLimitesTabHTML()}</div>` : ''}
+                    ${profile.role === 'Master' ? `<div id="cadastro-tab" class="tab-content ${firstVisibleTab === 'cadastro' ? 'active' : ''}">${getAdminHTML()}</div>` : ''}
                 </main>
             `;
+        }
+        
+        // --- TEMPLATES HTML DAS ABAS E MODAIS ---
+        function getSulcadorTabHTML() {
+            return `<div class="mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2><p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div><p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div>`;
+        }
+
+        function getFertirrigacaoTabHTML() {
+            return `<h2 class="text-9xl text-center">🚧</h2><p class="text-4xl font-bold text-gray-500 mt-4 text-center">Em Construção</p>`;
+        }
+
+        function getLimitesTabHTML() {
+            return `<div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500"><h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2><p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento.</p><form id="limits-form"><fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset><fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset><button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Configurações</button></form></div>`;
         }
 
         function getAdminHTML() {
             return `
-            <div id="cadastro-tab" class="tab-content">
                 <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-purple-500">
                     <h2 class="text-3xl font-bold text-gray-900 mb-6">Painel de Administração</h2>
                     <div id="admin-sub-tabs" class="flex gap-2 border-b mb-6">
@@ -736,11 +869,56 @@
                         <div id="gerenciar-list" class="space-y-3"></div>
                     </div>
                     <div id="adicionar-content" class="admin-content hidden">
-                         <form id="add-user-form" class="mb-10 p-6 border rounded-lg"><h3 class="text-lg font-semibold text-purple-700 mb-4">Adicionar Novo Usuário</h3><div class="space-y-4"><input name="new-user-email" type="email" placeholder="E-mail do novo usuário" required class="w-full p-2 border rounded-md"><input name="new-user-password" type="password" placeholder="Senha (mínimo 6 caracteres)" required class="w-full p-2 border rounded-md"><button type="submit" class="w-full py-2 rounded-md shadow-lg text-white bg-purple-600 hover:bg-purple-700">Criar Usuário</button></div></form>
+                         <form id="add-user-form" class="mb-10 p-6 border rounded-lg"><h3 class="text-lg font-semibold text-purple-700 mb-4">Adicionar Novo Usuário</h3><div class="space-y-4">
+                            <input name="new-user-name" type="text" placeholder="Nome do Usuário" required class="w-full p-2 border rounded-md">
+                            <input name="new-user-id" type="text" placeholder="ID do Usuário (Opcional)" class="w-full p-2 border rounded-md">
+                            <input name="new-user-email" type="email" placeholder="E-mail do novo usuário" required class="w-full p-2 border rounded-md">
+                            <input name="new-user-password" type="password" placeholder="Senha (mínimo 6 caracteres)" required class="w-full p-2 border rounded-md">
+                            <button type="submit" class="w-full py-2 rounded-md shadow-lg text-white bg-purple-600 hover:bg-purple-700">Criar Usuário</button>
+                         </div></form>
                     </div>
+                </div>`;
+        }
+
+        function getManagementModalHTML(user, isApproval) {
+            const title = isApproval ? 'Aprovar Usuário' : 'Gerenciar Usuário';
+            const isMaster = user.role === 'Master';
+            
+            return `
+            <div id="management-modal" class="modal-container fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                <div class="modal-content bg-white rounded-lg shadow-2xl p-8 max-w-lg w-full relative">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-4">${title}</h2>
+                    <p class="mb-1"><strong>Usuário:</strong> ${user.displayName}</p>
+                    <p class="mb-6 text-sm text-gray-500">${user.email}</p>
+                    <button id="close-management-modal" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
+                    <form id="management-form">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Nível de Acesso</label>
+                            <div class="flex gap-4">
+                                <label><input type="radio" name="role" value="Master" ${user.role === 'Master' ? 'checked' : ''}> Master</label>
+                                <label><input type="radio" name="role" value="Lider" ${user.role === 'Lider' ? 'checked' : ''}> Lider</label>
+                                <label><input type="radio" name="role" value="Operação" ${user.role === 'Operação' || isApproval ? 'checked' : ''}> Operação</label>
+                            </div>
+                        </div>
+                        <div id="permissions-div" class="${isMaster ? 'hidden' : ''} mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Permissões de Aba</label>
+                            <div class="flex flex-col sm:flex-row gap-4">
+                                <label><input type="checkbox" name="permissions" value="sulcador" ${user.permissions?.includes('sulcador') ? 'checked' : ''}> Sulcador</label>
+                                <label><input type="checkbox" name="permissions" value="fertirrigacao" ${user.permissions?.includes('fertirrigacao') ? 'checked' : ''}> Fertirrigação</label>
+                                <label><input type="checkbox" name="permissions" value="limites" ${user.permissions?.includes('limites') ? 'checked' : ''}> Limites</label>
+                                <label class="text-gray-500" title="Acesso ao painel de administração é exclusivo para o nível Master."><input type="checkbox" name="permissions" value="cadastro" ${user.permissions?.includes('cadastro') ? 'checked' : ''}> Cadastro (Risco)</label>
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-4">
+                            <button type="button" id="cancel-management" class="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
+                            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Salvar Alterações</button>
+                        </div>
+                    </form>
                 </div>
             </div>`;
         }
+
     </script>
 </body>
 </html>
+
