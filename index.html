@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v5.0</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v5.6</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js -->
@@ -97,6 +97,7 @@
         let readingsCache = [];
         let depthChart = null;
         let currentLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0 };
+        
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
@@ -327,6 +328,7 @@
         }
 
         function calculateStatus(depth, limits) {
+            if (!limits) return 'Sem Limites';
             if (depth < 0) return 'ERRO SENSOR';
             if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) return 'Manutenção';
             if (depth >= limits.produtivoMin && depth <= limits.produtivoMax) return 'Produtivo';
@@ -398,12 +400,7 @@
                     readingsCache = snapshot.docs.map(doc => {
                         const data = doc.data();
                         const statusServico = calculateStatus(data.prof_media, currentLimits);
-                        return {
-                            timestamp: data.timestamp,
-                            profMedia: data.prof_media,
-                            conexao: data.status_conexao || 'N/A',
-                            statusServico: statusServico
-                        };
+                        return { ...data, statusServico: statusServico };
                     });
                     updateDashboard(readingsCache);
                 } else {
@@ -428,7 +425,8 @@
         
         function updateDashboard(readings) {
             if(!document.getElementById('depth-chart')) return;
-            toggleSkeletons(true); 
+            toggleSkeletons(readings.length > 0);
+
             if (readings.length === 0) {
                 renderStatus('Aguardando Dados', 0);
                 document.getElementById('esp32-status-value').textContent = `N/A`;
@@ -439,14 +437,14 @@
             }
 
             const latestReading = readings[0];
-            const latestDepth = latestReading.profMedia;
+            const latestDepth = latestReading.prof_media || 0;
             renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
 
             const espStatusEl = document.getElementById('esp32-status-value');
-            espStatusEl.textContent = latestReading.conexao || 'N/A';
-            espStatusEl.className = `data-value text-xl ${latestReading.conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
+            espStatusEl.textContent = latestReading.status_conexao || 'N/A';
+            espStatusEl.className = `data-value text-xl ${latestReading.status_conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
 
-            const avgDepth = readings.reduce((sum, r) => sum + r.profMedia, 0) / readings.length;
+            const avgDepth = readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length;
             document.getElementById('avg-depth').textContent = `${avgDepth.toFixed(2)} cm`;
             
             const productiveCount = readings.filter(r => r.statusServico === 'Produtivo').length;
@@ -463,7 +461,7 @@
 
                 const row = document.createElement('tr');
                 row.className = 'table-row';
-                row.innerHTML = `<td class="px-6 py-3">${formatTimestamp(r.timestamp)}</td> <td class="px-6 py-3">${r.profMedia.toFixed(2)}</td> <td class="px-6 py-3 ${statusClass}">${r.statusServico}</td> <td class="px-6 py-3">${r.conexao}</td>`;
+                row.innerHTML = `<td class="px-6 py-3">${formatTimestamp(r.timestamp)}</td> <td class="px-6 py-3">${(r.prof_media || 0).toFixed(2)}</td> <td class="px-6 py-3 ${statusClass}">${r.statusServico}</td> <td class="px-6 py-3">${r.status_conexao}</td>`;
                 readingsHistoryBody.appendChild(row);
             });
 
@@ -479,7 +477,7 @@
                 labels: reversedReadings.map(r => r.timestamp.toDate()),
                 datasets: [{
                     label: 'Profundidade Média (cm)',
-                    data: reversedReadings.map(r => r.profMedia),
+                    data: reversedReadings.map(r => r.prof_media || 0),
                     borderColor: 'rgb(4, 120, 87)',
                     backgroundColor: 'rgba(4, 120, 87, 0.1)',
                     fill: true,
@@ -539,29 +537,16 @@
             }
             
             try {
-                // É necessário uma função de back-end (Cloud Function) para criar um usuário de autenticação
-                // sem fazer login. Este método é uma alternativa que cria um perfil "Pendente"
-                // que o usuário final pode "reivindicar" ao tentar se registrar com o mesmo e-mail.
-                // A abordagem mais segura seria usar Cloud Functions.
-                
-                // Por enquanto, apenas criamos o perfil no Firestore.
-                // Para criar a autenticação, precisaríamos de uma função de back-end.
-                // A linha abaixo é um placeholder para essa lógica.
-                // const userCredential = await createUserWithEmailAndPassword(getAuth(initializeApp(FIREBASE_CONFIG, 'temp')), email, password);
-                
                 const newUserProfile = {
-                    // uid: userCredential.user.uid, // Viria da criação de autenticação
                     email: email,
                     displayName: displayName,
                     customId: customId,
                     photoURL: '',
-                    role: 'Operação', // Padrão
+                    role: 'Operação',
                     permissions: [],
                     createdAt: serverTimestamp()
                 };
 
-                // Como não podemos criar Auth para outro usuário, vamos apenas criar o perfil.
-                // Isso requer regras de segurança que permitam ao Master criar documentos na coleção 'users'.
                 const userRef = doc(collection(db, FIRESTORE_USERS_COLLECTION_PATH));
                 await setDoc(userRef, { ...newUserProfile, uid: userRef.id, isManual: true });
 
@@ -756,17 +741,17 @@
             return `
             <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl space-y-6 border-t-8 border-emerald-600">
                 <div class="text-center"><img class="mx-auto h-20 w-auto" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras"><h2 class="mt-4 text-3xl font-extrabold text-gray-900">Acessar Sistema</h2></div>
-                <div class="space-y-4">
-                    <button id="google-login-button" class="w-full flex justify-center items-center gap-3 py-2 px-4 border rounded-md shadow-sm text-sm font-medium bg-white hover:bg-gray-50"><img class="h-5 w-5" src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png" alt="Google logo"> Acessar com Google</button>
-                    <div class="relative"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center text-sm"><span class="px-2 bg-white text-gray-500">Ou continue com</span></div></div>
-                </div>
+                
                 <form id="login-form" class="space-y-4" onsubmit="return false;">
                     <div><input id="email" type="email" autocomplete="email" required class="w-full px-3 py-2 border rounded-md" placeholder="Endereço de e-mail"></div>
                     <div><input id="password" type="password" autocomplete="current-password" required class="w-full px-3 py-2 border rounded-md" placeholder="Senha"></div>
                     <div class="flex items-center"><input id="remember-me" type="checkbox" class="h-4 w-4 text-emerald-600 rounded"><label for="remember-me" class="ml-2 block text-sm">Lembrar usuário</label></div>
                     <div id="login-error" class="text-red-600 text-sm text-center hidden"></div>
-                    <div class="flex flex-col sm:flex-row gap-2 pt-2">
+                    <div class="flex items-center gap-2 pt-2">
                         <button type="button" id="login-button" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md">Entrar</button>
+                        <button type="button" id="google-login-button" title="Acessar com Google" class="flex-shrink-0 p-2 border rounded-md shadow-sm bg-white hover:bg-gray-50">
+                            <svg class="w-5 h-5" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C44.962,32.645,48,27.135,48,20C48,18.896,47.9,17.82,47.6,16.8z"></path></svg>
+                        </button>
                         <button type="button" id="request-login-button" class="w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md">Solicitar Login</button>
                     </div>
                 </form>
@@ -824,14 +809,14 @@
                     <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${firstVisibleTab || ''}">
                         ${canSee('sulcador') ? `<button class="tab-button ${firstVisibleTab === 'sulcador' ? 'active' : ''}" data-tab="sulcador">Sulcador</button>` : ''}
                         ${canSee('fertirrigacao') ? `<button class="tab-button ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
-                        ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Config Impl</button>` : ''}
+                        ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Limites</button>` : ''}
                         ${profile.role === 'Master' ? `<button class="tab-button ${firstVisibleTab === 'cadastro' ? 'active' : ''}" data-tab="cadastro">Cadastro</button>` : ''}
                     </nav>
                 </header>
                 <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-                    ${canSee('sulcador') ? `<div id="sulcador-tab" class="tab-content ${firstVisibleTab === 'sulcador' ? 'active' : ''}">${getSulcadorTabHTML()}</div>` : ''}
-                    ${canSee('fertirrigacao') ? `<div id="fertirrigacao-tab" class="tab-content ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}">${getFertirrigacaoTabHTML()}</div>` : ''}
-                    ${canSee('limites') ? `<div id="limites-tab" class="tab-content ${firstVisibleTab === 'limites' ? 'active' : ''}">${getLimitesTabHTML()}</div>` : ''}
+                    <div id="sulcador-tab" class="tab-content ${firstVisibleTab === 'sulcador' ? 'active' : ''}">${getSulcadorTabHTML()}</div>
+                    <div id="fertirrigacao-tab" class="tab-content ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}">${getFertirrigacaoTabHTML()}</div>
+                    <div id="limites-tab" class="tab-content ${firstVisibleTab === 'limites' ? 'active' : ''}">${getLimitesTabHTML()}</div>
                     ${profile.role === 'Master' ? `<div id="cadastro-tab" class="tab-content ${firstVisibleTab === 'cadastro' ? 'active' : ''}">${getAdminHTML()}</div>` : ''}
                 </main>
             `;
@@ -839,7 +824,7 @@
         
         // --- TEMPLATES HTML DAS ABAS E MODAIS ---
         function getSulcadorTabHTML() {
-            return `<div class="mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2><p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div><p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div>`;
+            return `<div class="flex justify-between items-center mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real</h2><div class="flex items-center space-x-2"><label for="equipment-select-sulcador" class="text-sm font-medium">Equipamento:</label><select id="equipment-select-sulcador" class="rounded-md border-gray-300 shadow-sm"></select></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div>`;
         }
 
         function getFertirrigacaoTabHTML() {
@@ -847,7 +832,15 @@
         }
 
         function getLimitesTabHTML() {
-            return `<div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500"><h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2><p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento.</p><form id="limits-form"><fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset><fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset><button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Configurações</button></form></div>`;
+            return `<div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
+                <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-900">Configuração de Limites</h2><div class="flex items-center space-x-2"><label for="equipment-select-limites" class="text-sm font-medium">Equipamento:</label><select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select></div></div>
+                <form id="limits-form">
+                    <div class="mb-6"><label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento</label><input type="text" id="equipment-name" name="equipment-name" class="mt-1 block w-full rounded-md" required></div>
+                    <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                    <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                    <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Limites no Firestore</button>
+                </form>
+            </div>`;
         }
 
         function getAdminHTML() {
