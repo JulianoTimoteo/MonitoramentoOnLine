@@ -3,860 +3,744 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras</title>
-    <!-- Carrega Tailwind CSS para estilização moderna e responsiva -->
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v4.0</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- Google Platform Library for Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
     <style>
-        /* Configuração de fonte e cores da empresa (Verde, Preto/Chumbo, Branco) */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        
         :root {
-            --color-primary: #047857; /* Emerald-700, um verde institucional */
-            --color-secondary: #1f2937; /* Gray-800, chumbo para contraste */
+            --color-primary: #047857; /* Verde */
+            --color-secondary: #1f2937;
             --color-background: #f9fafb;
-            --color-red-active: #991b1b; /* Red-800 para o botão ativo */
+            --color-fertirrigacao: #2563eb; /* Azul */
+            --color-limites: #d97706; /* Âmbar */
+            --color-cadastro: #7c3aed; /* Roxo */
         }
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--color-background);
-        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--color-background); }
         
-        /* Estilos do Splash Screen */
-        #splashScreen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: white; 
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 50; /* Acima de tudo */
-            opacity: 1;
-            transition: opacity 1.5s ease-out;
-        }
-        #splash-logo {
-            height: 150px;
-            opacity: 0;
-            transition: all 1s ease-in-out;
-            transform: scale(1.2);
-        }
-        #splash-slogan {
-            font-size: 1.25rem;
-            margin-top: 20px;
-            opacity: 0;
-            transition: opacity 1s ease-in 0.5s;
-        }
+        .hidden { display: none !important; }
+        #login-screen, #splashScreen, #app-container { display: none; }
+        #login-screen.active { display: flex; }
+        #splashScreen.active { display: flex; opacity: 1; transition: opacity 1.5s ease-out; }
+        #app-container.active { display: block; opacity: 1; transition: opacity 0.5s ease-in-out; }
 
-        /* Estilos de transição para o logo no header */
-        .header-logo {
-            transition: all 1.5s ease-in-out;
-            height: 0px; /* Escondido inicialmente */
-            opacity: 0;
-        }
-        .header-logo-start {
-            height: 150px !important;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 51;
-        }
+        #splash-logo { transition: all 1s ease-in-out; }
+        #splash-slogan { transition: opacity 1s ease-in 0.5s; }
+        .header-logo { transition: all 1.5s ease-in-out; }
+        .header-logo-start { height: 150px !important; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; }
 
-        /* Estilos dos Cards de Métrica */
-        .metric-card {
-            background-color: white;
-            padding: 1.5rem;
-            border-radius: 0.75rem; /* rounded-xl */
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* shadow-xl */
-            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.5s ease;
-            position: relative;
-            overflow: hidden;
-            border-bottom: 3px solid #e5e7eb;
+        .metric-card { 
+            background-color: white; padding: 1.5rem; border-radius: 0.75rem; 
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
         }
-        .metric-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
+        .metric-card:hover { transform: translateY(-5px); }
 
-        .data-label {
-            text-transform: uppercase;
-            font-size: 0.875rem; /* text-sm */
-            color: #4b5563; /* Gray-600 */
-            font-weight: 500; /* Medium */
-            letter-spacing: 0.05em;
-        }
-
-        .data-value {
-            font-size: 2.25rem; /* text-4xl */
-            font-weight: 800; /* Extra bold */
-            margin-top: 0.25rem;
-            color: var(--color-secondary);
-        }
-
-        /* Estilos de Botões */
-        .btn-primary {
-            background-color: var(--color-primary);
-        }
-        .btn-primary:hover {
-            background-color: #059669; /* Emerald-600 mais escuro */
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
+        .tab-button { transition: all 0.2s ease-in-out; border-bottom: 4px solid transparent; padding: 1rem 0.25rem; font-weight: 600; color: #6b7280; }
+        #tabs-container.sulcador .tab-button[data-tab="sulcador"] { border-color: var(--color-primary); color: var(--color-primary); }
+        #tabs-container.fertirrigacao .tab-button[data-tab="fertirrigacao"] { border-color: var(--color-fertirrigacao); color: var(--color-fertirrigacao); }
+        #tabs-container.limites .tab-button[data-tab="limites"] { border-color: var(--color-limites); color: var(--color-limites); }
+        #tabs-container.cadastro .tab-button[data-tab="cadastro"] { border-color: var(--color-cadastro); color: var(--color-cadastro); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         
-        /* Estilo da Tabela */
-        .table-header {
-            background-color: var(--color-primary);
-            color: white;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-size: 0.75rem;
-        }
-        .table-row:nth-child(even) {
-            background-color: #f3f4f6; /* Gray-100 para listras */
-        }
+        .data-label { text-transform: uppercase; font-size: 0.875rem; color: #4b5563; }
+        .data-value { font-size: 2.25rem; font-weight: 800; }
 
-        /* Estilo de cores dinâmicas de status */
-        .status-produtivo { border-color: #10b981 !important; color: #059669 !important; } /* Emerald */
-        .status-parado { border-color: #fbbf24 !important; color: #d97706 !important; } /* Amber */
-        .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; } /* Red */
-        .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; } /* Gray */
+        .table-header { background-color: var(--color-primary); color: white; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem; }
+        .table-row:nth-child(even) { background-color: #f3f4f6; }
 
+        .status-produtivo { border-color: #10b981 !important; color: #059669 !important; }
+        .status-parado { border-color: #fbbf24 !important; color: #d97706 !important; }
+        .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; }
+        .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; }
+
+        #request-login-modal-content { transition: opacity 0.3s ease-out, transform 0.3s ease-out; transform: scale(0.95); opacity: 0; }
+        #request-login-modal:not(.hidden) #request-login-modal-content { transform: scale(1); opacity: 1; }
+        .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
+        .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
     </style>
 </head>
-<body>
+<body class="bg-gray-100">
 
-    <!-- 1. SPLASH SCREEN (Abertura Animada) -->
-    <div id="splashScreen">
-        <img id="splash-logo" 
-             src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" 
-             alt="Logo Usina Pitangueiras" 
-             class="transition-all duration-1000 ease-in-out">
-        <p id="splash-slogan" class="text-gray-700 font-serif font-bold">A energia que move a região</p>
-    </div>
-
-    <!-- 2. CONTAINER PRINCIPAL DO APP (Invisível até o fim do Splash) -->
-    <div id="app-container" class="min-h-screen opacity-0 pointer-events-none transition-opacity duration-500">
-        
-        <!-- HEADER (Com o Logo em transição) -->
-        <header class="shadow-md bg-white sticky top-0 z-10">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                <img id="header-logo" 
-                     src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" 
-                     alt="Logo Usina Pitangueiras" 
-                     class="header-logo">
-                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Monitoramento Operacional</h1>
-                <div class="flex items-center space-x-4">
-                    <span id="readings-status" class="text-sm font-medium text-red-500">Firestore Log: Desconectado</span>
-                    <span id="limites-status" class="text-sm font-medium text-red-500">Firestore Limites: Desconectado</span>
-                    <button id="toggle-view-button" class="bg-gray-200 text-gray-700 hover:bg-gray-300 py-2 px-4 rounded-lg text-sm font-semibold transition duration-150 shadow-inner">
-                        Configurar Limites
-                    </button>
-                </div>
-            </div>
-        </header>
-
-        <!-- CONTEÚDO PRINCIPAL (Dashboard e Configurações) -->
-        <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-
-            <!-- VISUALIZAÇÃO 1: DASHBOARD OPERACIONAL -->
-            <div id="dashboard-view">
-                <div class="mb-8 border-b pb-4">
-                    <h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2>
-                    <p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p>
-                </div>
-                
-                <!-- Cards de Métricas e Status -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                    
-                    <!-- Card 1: Conexão ESP32 -->
-                    <div class="metric-card border-l-4 border-emerald-500">
-                        <p class="data-label">Conexão ESP32</p>
-                        <p class="data-value text-xl" id="esp32-status-value">N/A</p> 
-                    </div>
-                    
-                    <!-- Card 2: Última Profundidade (cm) -->
-                    <div class="metric-card border-l-4 border-indigo-500">
-                        <p class="data-label">Última Profundidade</p>
-                        <p class="data-value text-indigo-700" id="last-depth">0.00 cm</p>
-                    </div>
-
-                    <!-- Card 3: Média Últimas Leituras (cm) -->
-                    <div class="metric-card border-l-4 border-purple-500">
-                        <p class="data-label">Média Últimas Leituras</p>
-                        <p class="data-value text-purple-700" id="avg-depth">0.0 cm</p>
-                    </div>
-
-                    <!-- Card 4: Percentual Produtivo -->
-                    <div class="metric-card border-l-4 border-teal-500">
-                        <p class="data-label">Percentual Produtivo (24h)</p>
-                        <p class="data-value text-teal-700" id="productive-percent">0.0%</p>
-                    </div>
-                </div>
-
-                <!-- Status Atual e Limites Atuais -->
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                    <!-- Card 5: Status Atual (Borda Dinâmica) -->
-                    <div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8">
-                        <p class="data-label text-xl mb-2">Status Atual</p>
-                        <p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p>
-                        <p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p>
-                    </div>
-                    
-                    <!-- Card 6: Limites Operacionais Atuais (Lidos do Firestore) -->
-                    <div class="metric-card lg:col-span-2">
-                        <h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <p class="font-bold text-gray-800">Produtivo (Min/Max):</p>
-                                <!-- $ usa a sintaxe LaTeX para melhor formatação matemática -->
-                                <p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">10.0 / 50.0 cm</p>
-                            </div>
-                            <div>
-                                <p class="font-bold text-gray-800">Manutenção (Centro $\pm$ Tolerância):</p>
-                                <p id="limit-parado" class="text-lg text-red-600 font-semibold">70.0 $\pm$ 5.0 cm</p>
-                            </div>
-                        </div>
-                        <p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p>
-                    </div>
-                </div>
-
-                <!-- Histórico de Leituras (Tabela) -->
-                <div class="mt-12">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2>
-                        <!-- NOVO BOTÃO DE TESTE -->
-                        <button id="add-test-reading-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-semibold hover:bg-blue-700 transition duration-150 shadow-md">
-                            + Inserir Leitura de Teste
-                        </button>
-                    </div>
-
-                    <div class="overflow-x-auto rounded-lg shadow-xl">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead>
-                                <tr class="table-header">
-                                    <th scope="col" class="px-6 py-3 text-left">Timestamp</th>
-                                    <th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th>
-                                    <th scope="col" class="px-6 py-3 text-left">Status Serviço</th>
-                                    <th scope="col" class="px-6 py-3 text-left">Conexão</th>
-                                </tr>
-                            </thead>
-                            <tbody id="readings-history" class="bg-white divide-y divide-gray-200">
-                                <!-- Linhas de dados serão inseridas aqui via JavaScript -->
-                                <tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada no Firestore.</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div> <!-- Fim: dashboard-view -->
-
-            <!-- VISUALIZAÇÃO 2: CONFIGURAÇÃO DE LIMITES (Escondida por padrão) -->
-            <div id="config-view" class="hidden">
-                <div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
-                    <h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2>
-                    <p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento. As alterações são salvas no **Firestore** e aplicadas em tempo real.</p>
-                    
-                    <form id="limits-form">
-                        <fieldset class="space-y-6 mb-8 p-6 border rounded-lg">
-                            <legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend>
-                            <p class="text-sm text-gray-500">O equipamento é Produtivo quando a profundidade estiver entre Min e Max.</p>
-                            
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label>
-                                    <input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2" required>
-                                </div>
-                                <div>
-                                    <label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label>
-                                    <input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 p-2" required>
-                                </div>
-                            </div>
-                        </fieldset>
-
-                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg">
-                            <legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend>
-                            <p class="text-sm text-gray-500">O equipamento está em Manutenção quando a profundidade estiver no Centro $\pm$ Tolerância.</p>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label>
-                                    <input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2" required>
-                                </div>
-                                <div>
-                                    <label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância ($\pm$ cm)</label>
-                                    <input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2" required>
-                                </div>
-                            </div>
-                        </fieldset>
-
-                        <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-md shadow-lg text-white btn-primary focus:outline-none focus:ring-2 focus:ring-offset-2 transition duration-150">
-                            Salvar Limites no Firestore
-                        </button>
-                    </form>
-                </div>
-            </div> <!-- Fim: config-view -->
-
-            <!-- Rodapé de Informação do Usuário e App -->
-            <div class="mt-12 pt-4 border-t text-sm text-gray-500 flex justify-between flex-wrap">
-                <div class="flex-shrink-0">
-                    <p>UserID: <code class="bg-gray-200 p-1 rounded font-mono" id="user-id">N/A</code></p>
-                    <p>AppID: <code class="bg-gray-200 p-1 rounded font-mono" id="app-id">N/A</code></p>
-                </div>
-                <div class="text-right flex-shrink-0 mt-2 sm:mt-0">
-                    <p>Desenvolvido para Usina Pitangueiras</p>
-                    <p class="text-xs">Versão 1.1.0 (API Firebase Firestore)</p>
-                </div>
-            </div>
-
-        </main>
-    </div> <!-- Fim: app-container -->
+    <div id="login-screen" class="min-h-screen items-center justify-center bg-gray-100 active p-4"></div>
+    <div id="splashScreen" class="fixed inset-0 bg-white flex flex-col items-center justify-center z-50"></div>
+    <div id="app-container" class="min-h-screen"></div>
 
     <script type="module">
-        // ====================================================================================
-        // === CORREÇÕES APLICADAS APENAS NA CONEXÃO FIREBASE ===
-        // ====================================================================================
-
-        // Importa módulos Firebase necessários
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        // Importações ATUALIZADAS para Firestore (incluindo query, setDoc, addDoc)
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, serverTimestamp, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        
-        // ✅ CORREÇÃO 1: Configuração CORRETA do Firebase
-        const FALLBACK_FIREBASE_CONFIG = {
-            apiKey: "AIzaSyBN-jcSaOxiIg9H8Zc2MxdPoBe36g3qnV4", // ✅ CORRIGIDA: Adicionado o "c" faltante
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, serverTimestamp, orderBy, limit, getDoc, updateDoc, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyBN-jcSaOxiIg9H8Zc2MxdPoBe36g3qnV4", 
             authDomain: "monitoramento-esp32-2551e.firebaseapp.com",
-            databaseURL: "https://monitoramento-esp32-2551e-default-rtdb.firebaseio.com",
             projectId: "monitoramento-esp32-2551e",
-            storageBucket: "monitoramento-esp32-2551e.firebasestorage.app",
+            storageBucket: "monitoramento-esp32-2551e.appspot.com",
             messagingSenderId: "1026903641131",
             appId: "1:1026903641131:web:86e847b5e600914b26ae6e"
         };
-        
-        // ✅ CORREÇÃO 2: Caminhos CORRETOS baseados na sua estrutura real
         const FIRESTORE_ROOT_PREFIX = 'artifacts/monitoramento-esp32-2551e/public/data';
+        const FIRESTORE_USERS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/users`;
         const FIREBASE_LIMITS_PATH = `${FIRESTORE_ROOT_PREFIX}/operational_limits/EQP_USINA_01`;
         const FIRESTORE_READINGS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/leituras_esp32`;
 
-        // Variáveis globais
         let app, auth, db;
-        let currentUserId = 'N/A';
-        let readingsCache = []; // Cache das últimas leituras para cálculo de média e percentual
+        let currentUserProfile = null;
+        let readingsCache = [];
+        let depthChart = null;
+        let currentLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0 };
+        let unsubscribeLimits = () => {};
+        let unsubscribeReadings = () => {};
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('login-screen').innerHTML = getLoginHTML();
+            document.getElementById('splashScreen').innerHTML = getSplashHTML();
+            initializeAppAndAuth();
+        });
 
-        // ATENÇÃO: As configurações do Firebase e o token de autenticação são INJETADOS
-        // pelo ambiente de execução (Canvas). Usamos o fallback se a injeção falhar.
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        // Tenta ler a configuração injetada, se falhar usa o FALLBACK
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        // Limites Operacionais (Fallback local até serem lidos/salvos no Firestore)
-        let currentLimits = {
-            produtivoMin: 10.0,
-            produtivoMax: 50.0,
-            paradoCentro: 70.0,
-            paradoTolerancia: 5.0
-        };
+        async function initializeAppAndAuth() {
+            try {
+                app = initializeApp(FIREBASE_CONFIG);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                setupAuthListeners();
+                onAuthStateChanged(auth, user => {
+                    if (user) {
+                        handleUserProfile(user);
+                    } else {
+                        currentUserProfile = null;
+                        showLoginScreen();
+                    }
+                });
+            } catch (error) { console.error("Erro fatal na inicialização:", error); }
+        }
         
-        // Caminhos dos documentos
-        const EQUIPMENT_ID = 'EQP_USINA_01';
-        
-        // Mapeamento de elementos DOM
-        const statusCard = document.getElementById('current-status-card');
-        const statusText = document.getElementById('status-value-text');
-        const lastDepthEl = document.getElementById('last-depth');
-        const avgDepthEl = document.getElementById('avg-depth');
-        const esp32StatusEl = document.getElementById('esp32-status-value');
-        const productivePercentEl = document.getElementById('productive-percent');
-        const readingsHistoryBody = document.getElementById('readings-history');
-        const limitProdutivoEl = document.getElementById('limit-produtivo');
-        const limitParadoEl = document.getElementById('limit-parado');
-        const readingsStatusEl = document.getElementById('readings-status');
-        const limitsStatusEl = document.getElementById('limites-status');
-        const firestorePathDisplayEl = document.getElementById('firestore-path-display');
-        const limitsForm = document.getElementById('limits-form');
-        const toggleViewButton = document.getElementById('toggle-view-button');
-        const dashboardView = document.getElementById('dashboard-view');
-        const configView = document.getElementById('config-view');
-        
-        // Função utilitária para formatar timestamp
-        function formatTimestamp(timestamp) {
-            let date;
-            if (timestamp && typeof timestamp.toDate === 'function') {
-                date = timestamp.toDate();
-            } else if (timestamp instanceof Date) {
-                date = timestamp;
-            } else {
-                return 'N/A';
+        function setupAuthListeners() {
+            const loginScreen = document.getElementById('login-screen');
+            const savedEmail = localStorage.getItem('savedUserEmail');
+            if (savedEmail) {
+                document.getElementById('email').value = savedEmail;
+                document.getElementById('remember-me').checked = true;
             }
-            return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+
+            loginScreen.addEventListener('click', e => {
+                if (e.target.id === 'login-button') handleLogin();
+                if (e.target.id === 'google-login-button' || e.target.closest('#google-login-button')) handleGoogleSignIn();
+                if (e.target.id === 'request-login-button') document.getElementById('request-login-modal')?.classList.remove('hidden');
+                if (e.target.id === 'request-login-modal' || e.target.closest('#close-modal-button')) document.getElementById('request-login-modal')?.classList.add('hidden');
+            });
+            loginScreen.addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
+            document.getElementById('request-login-form')?.addEventListener('submit', handleLoginRequest);
         }
 
-        // Função utilitária para mostrar caixa de diálogo customizada (Substitui alert())
-        function showMessage(title, message, type = 'success') {
-            const container = document.getElementById('app-container');
-            let bgColor = 'bg-emerald-500';
-            if (type === 'error') bgColor = 'bg-red-500';
-            if (type === 'warning') bgColor = 'bg-yellow-500';
+        async function handleUserProfile(firebaseUser) {
+            const userRef = doc(db, FIRESTORE_USERS_COLLECTION_PATH, firebaseUser.uid);
+            const userDoc = await getDoc(userRef);
 
-            const dialogHtml = `
-                <div id="custom-dialog" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full transform transition-all duration-300 scale-100">
-                        <div class="flex items-start">
-                            <div class="p-2 rounded-full ${bgColor} text-white mr-4">
-                                ${type === 'success' ? 
-                                    '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : 
-                                    '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
-                                }
-                            </div>
-                            <div>
-                                <h3 class="text-lg leading-6 font-medium text-gray-900">${title}</h3>
-                                <div class="mt-2">
-                                    <p class="text-sm text-gray-500">${message}</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="mt-4 text-right">
-                            <button id="dialog-ok-button" class="py-2 px-4 ${bgColor} text-white rounded-md hover:opacity-90 transition duration-150">OK</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            container.insertAdjacentHTML('beforeend', dialogHtml);
+            if (userDoc.exists()) {
+                currentUserProfile = userDoc.data();
+                if (currentUserProfile.role === 'Pendente') {
+                    showMessage('Acesso Pendente', 'Sua conta foi criada e está aguardando aprovação de um administrador.', 'warning');
+                    signOut(auth);
+                } else {
+                    startApplication(firebaseUser);
+                }
+            } else {
+                const newUserProfile = {
+                    uid: firebaseUser.uid,
+                    email: firebaseUser.email,
+                    displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+                    role: 'Pendente',
+                    permissions: [],
+                    createdAt: serverTimestamp()
+                };
+                await setDoc(userRef, newUserProfile);
+                showMessage('Aguardando Aprovação', 'Sua conta foi criada com sucesso! Um administrador precisa aprovar seu acesso.', 'info');
+                signOut(auth);
+            }
+        }
 
-            document.getElementById('dialog-ok-button').addEventListener('click', () => {
-                document.getElementById('custom-dialog').remove();
+        async function handleGoogleSignIn() {
+            const provider = new GoogleAuthProvider();
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
+                console.error("Erro no login com Google:", error);
+                showMessage('Erro', 'Não foi possível fazer login com o Google.', 'error');
+            }
+        }
+
+        async function handleLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const rememberMe = document.getElementById('remember-me').checked;
+            const [btn, errEl] = [document.getElementById('login-button'), document.getElementById('login-error')];
+            
+            errEl.classList.add('hidden');
+            btn.disabled = true; btn.textContent = "Entrando...";
+            try { 
+                await signInWithEmailAndPassword(auth, email, password);
+                if (rememberMe) {
+                    localStorage.setItem('savedUserEmail', email);
+                } else {
+                    localStorage.removeItem('savedUserEmail');
+                }
+            } 
+            catch (error) { errEl.textContent = "E-mail ou senha incorretos."; errEl.classList.remove('hidden'); } 
+            finally { btn.disabled = false; btn.textContent = "Entrar"; }
+        }
+
+        function handleLoginRequest(e) {
+            e.preventDefault();
+            const form = e.target;
+            const nome = form.elements['nome'].value;
+            const id = form.elements['id'].value;
+            const email = form.elements['email'].value;
+            const telefone = form.elements['telefone'].value;
+
+            if (!nome || !email || !telefone) {
+                showMessage('Campos Obrigatórios', 'Por favor, preencha Nome, E-mail e Telefone.', 'warning');
+                return;
+            }
+            
+            const whatsappNumber = '5516992886004'; 
+            const message = `*Solicitação de Acesso ao Sistema de Monitoramento*\n\n*Nome:* ${nome}\n*ID:* ${id || 'Não informado'}\n*Email:* ${email}\n*Telefone:* ${telefone}`;
+            const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+            
+            window.open(whatsappLink, '_blank');
+            showMessage('Redirecionando', 'Você será redirecionado para o WhatsApp para enviar a solicitação.', 'success');
+            document.getElementById('request-login-modal').classList.add('hidden');
+            form.reset();
+        }
+
+        function showLoginScreen() {
+            const loginScreen = document.getElementById('login-screen');
+            if(loginScreen) loginScreen.classList.add('active');
+            
+            document.getElementById('splashScreen')?.classList.remove('active');
+            const appContainer = document.getElementById('app-container');
+            if (appContainer) { appContainer.innerHTML = ''; appContainer.classList.remove('active'); }
+        }
+
+        function startApplication(user) {
+            const appContainer = document.getElementById('app-container');
+            if (!appContainer || appContainer.innerHTML.includes('header')) return;
+            document.getElementById('login-screen')?.classList.remove('active');
+            document.getElementById('splashScreen')?.classList.add('active');
+            appContainer.innerHTML = getAppHTML(user, currentUserProfile);
+            runInitialAnimation();
+        }
+        
+        function runInitialAnimation() {
+            const [splashLogo, splashSlogan, headerLogo, splashScreen, appContainer] = [document.getElementById('splash-logo'), document.getElementById('splash-slogan'), document.getElementById('header-logo'), document.getElementById('splashScreen'), document.getElementById('app-container')];
+            setTimeout(() => { if(splashLogo) { splashLogo.style.opacity = '1'; splashLogo.style.transform = 'scale(1)'; } if(headerLogo) headerLogo.classList.add('header-logo-start'); }, 100);
+            setTimeout(() => { if(splashSlogan) splashSlogan.style.opacity = '1' }, 600);
+            setTimeout(() => {
+                if(splashScreen) splashScreen.style.opacity = '0';
+                if(headerLogo) { headerLogo.classList.remove('header-logo-start'); headerLogo.classList.add('h-10'); headerLogo.style.opacity = '1'; }
+                if(appContainer) appContainer.classList.add('active');
+                setTimeout(() => { 
+                    if (splashScreen) splashScreen.classList.remove('active'); 
+                    initializeDashboard(); 
+                }, 1500);
+            }, 2500);
+        }
+
+        function initializeDashboard() {
+            document.getElementById('logout-button')?.addEventListener('click', () => {
+                unsubscribeLimits();
+                unsubscribeReadings();
+                signOut(auth);
+            });
+            setupTabNavigation();
+            
+            if (currentUserProfile.role === 'Master' || (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites'))) {
+                 document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
+            }
+
+            if (currentUserProfile.role === 'Master') {
+                document.getElementById('add-user-form')?.addEventListener('submit', handleAddUser);
+                setupAdminTabs();
+                loadAdminData('pendentes'); 
+            }
+            
+            listenToLimits();
+            listenToReadings();
+        }
+        
+        function setupTabNavigation() {
+            const tabsContainer = document.getElementById('tabs-container');
+            tabsContainer?.addEventListener('click', e => {
+                if (e.target.matches('.tab-button')) {
+                    const tabId = e.target.dataset.tab;
+                    tabsContainer.className = `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${tabId}`;
+                    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                    document.getElementById(`${tabId}-tab`)?.classList.add('active');
+                }
             });
         }
+        
+        function formatTimestamp(timestamp) {
+            if (timestamp && typeof timestamp.toDate === 'function') {
+                return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+            }
+            return 'N/A';
+        }
 
-        // FUNÇÃO CENTRAL: Define o Status Operacional
+        function showMessage(title, message, type = 'info') {
+            const existingDialog = document.getElementById('custom-dialog');
+            if (existingDialog) existingDialog.remove();
+            let bgColor = type === 'error' ? 'bg-red-500' : (type === 'warning' ? 'bg-amber-500' : (type === 'success' ? 'bg-emerald-500' : 'bg-blue-500'));
+            const dialogContainer = document.createElement('div');
+            dialogContainer.id = 'custom-dialog';
+            dialogContainer.className = "fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[100] p-4";
+            dialogContainer.innerHTML = `<div class="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full"><div class="flex items-start"><div class="p-2 rounded-full ${bgColor} text-white mr-4">${type === 'success' ? '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'}</div><div><h3 class="text-lg font-medium text-gray-900">${title}</h3><div class="mt-2"><p class="text-sm text-gray-500">${message}</p></div></div></div><div class="mt-5 text-right"><button id="dialog-ok-button" class="py-2 px-4 ${bgColor} text-white rounded-md text-sm font-semibold">OK</button></div></div>`;
+            document.body.appendChild(dialogContainer);
+            dialogContainer.querySelector('#dialog-ok-button')?.addEventListener('click', () => dialogContainer.remove());
+        }
+
         function calculateStatus(depth, limits) {
-            // Trata o caso de ERRO SENSOR
-            if (depth < 0) {
-                return 'ERRO SENSOR';
-            }
-
-            const min = limits.produtivoMin;
-            const max = limits.produtivoMax;
-            const center = limits.paradoCentro;
-            const tol = limits.paradoTolerancia;
-            
-            // 1. Status: Manutenção (Profundidade h_Mesa ± Tolerância)
-            if (depth >= (center - tol) && depth <= (center + tol)) {
-                return 'Manutenção';
-            }
-            // 2. Status: Produtivo (Dentro da faixa ideal)
-            if (depth >= min && depth <= max) {
-                return 'Produtivo';
-            }
-            // 3. Status: Parado (Qualquer outro valor fora dos limites produtivos/manutenção)
+            if (depth < 0) return 'ERRO SENSOR';
+            if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) return 'Manutenção';
+            if (depth >= limits.produtivoMin && depth <= limits.produtivoMax) return 'Produtivo';
             return 'Parado';
         }
 
-        // Função para renderizar o Status no Card com cores dinâmicas
         function renderStatus(status, depth) {
+            const statusCard = document.getElementById('current-status-card');
+            const statusText = document.getElementById('status-value-text');
+            if(!statusCard || !statusText) return;
             statusText.textContent = status;
-            
-            // Remove todas as classes de status
-            statusCard.className = statusCard.className.split(' ').filter(c => 
-                !c.startsWith('status-') && !c.startsWith('border-')
-            ).join(' ');
-            
+            statusCard.className = statusCard.className.split(' ').filter(c => !c.startsWith('status-') && !c.startsWith('border-')).join(' ');
             let colorClass = 'border-gray-500';
-            
-            // Adiciona a classe de status correspondente
-            if (status === 'Produtivo') {
-                statusCard.classList.add('status-produtivo');
-                colorClass = 'border-emerald-500';
-            } else if (status === 'Parado') {
-                statusCard.classList.add('status-parado');
-                colorClass = 'border-amber-500';
-            } else if (status === 'Manutenção') {
-                statusCard.classList.add('status-manutencao');
-                colorClass = 'border-red-500';
-            } else if (status === 'ERRO SENSOR' || status === 'Aguardando Dados') {
-                statusCard.classList.add('status-erro');
-                colorClass = 'border-gray-500';
-            }
-
-            // Garante que a borda principal tenha a cor do status
+            if (status === 'Produtivo') { statusCard.classList.add('status-produtivo'); colorClass = 'border-emerald-500'; } 
+            else if (status === 'Parado') { statusCard.classList.add('status-parado'); colorClass = 'border-amber-500'; }
+            else if (status === 'Manutenção') { statusCard.classList.add('status-manutencao'); colorClass = 'border-red-500'; }
+            else { statusCard.classList.add('status-erro'); }
             statusCard.classList.add(colorClass);
-
-            // Atualiza a última profundidade
-            lastDepthEl.textContent = `${depth.toFixed(2)} cm`;
+            document.getElementById('last-depth').textContent = `${depth.toFixed(2)} cm`;
         }
 
-        // Função para atualizar os limites no formulário de configuração e no dashboard
         function updateConfigForm(limits) {
-            document.getElementById('input-produtivo-min').value = limits.produtivoMin;
-            document.getElementById('input-produtivo-max').value = limits.produtivoMax;
-            document.getElementById('input-parado-centro').value = limits.paradoCentro;
-            document.getElementById('input-parado-tolerancia').value = limits.paradoTolerancia;
-
-            // Atualiza o card de limites no dashboard
-            limitProdutivoEl.innerHTML = `${limits.produtivoMin.toFixed(1)} / ${limits.produtivoMax.toFixed(1)} cm`;
-            // Atualiza o símbolo LaTeX para o display correto
-            limitParadoEl.innerHTML = `${limits.paradoCentro.toFixed(1)} $\\pm$ ${limits.paradoTolerancia.toFixed(1)} cm`;
+            const prodMin = document.getElementById('input-produtivo-min');
+            if (prodMin) {
+                prodMin.value = limits.produtivoMin;
+                document.getElementById('input-produtivo-max').value = limits.produtivoMax;
+                document.getElementById('input-parado-centro').value = limits.paradoCentro;
+                document.getElementById('input-parado-tolerancia').value = limits.paradoTolerancia;
+                document.getElementById('limit-produtivo').innerHTML = `${limits.produtivoMin.toFixed(1)} / ${limits.produtivoMax.toFixed(1)} cm`;
+                document.getElementById('limit-parado').innerHTML = `${limits.paradoCentro.toFixed(1)} &pm; ${limits.paradoTolerancia.toFixed(1)} cm`;
+            }
         }
         
-        // ✅ CORREÇÃO 3: Listener do Firestore para Limites Operacionais - CORRIGIDO
         function listenToLimits() {
-            if (!db || !currentUserId) {
-                console.error("Firestore não inicializado ou UserID ausente.");
-                limitsStatusEl.textContent = "Firestore Limites: Erro de Init";
-                limitsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
-                limitsStatusEl.classList.add('text-red-500');
-                return;
-            }
-
-            // ✅ CORREÇÃO: Caminho correto
-            firestorePathDisplayEl.textContent = FIREBASE_LIMITS_PATH; 
-            const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
+            if (!db) return;
+            const pathDisplay = document.getElementById('firestore-path-display');
+            if(pathDisplay) pathDisplay.textContent = FIREBASE_LIMITS_PATH; 
             
-            // Valores default para inicialização
-            const defaultLimits = {
-                produtivoMin: 10.0,
-                produtivoMax: 50.0,
-                paradoCentro: 70.0,
-                paradoTolerancia: 5.0,
-                equipamento: EQUIPMENT_ID,
-                createdAt: serverTimestamp()
-            };
+            const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
+            const defaultLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0, equipamento: 'EQP_USINA_01', createdAt: serverTimestamp() };
 
-            onSnapshot(limitsDocRef, (docSnapshot) => {
+            unsubscribeLimits = onSnapshot(limitsDocRef, (docSnapshot) => {
                 if (docSnapshot.exists()) {
                     const data = docSnapshot.data();
-                    
-                    // Garante que todos os campos são números
                     currentLimits = {
                         produtivoMin: parseFloat(data.produtivoMin) || defaultLimits.produtivoMin,
                         produtivoMax: parseFloat(data.produtivoMax) || defaultLimits.produtivoMax,
                         paradoCentro: parseFloat(data.paradoCentro) || defaultLimits.paradoCentro,
                         paradoTolerancia: parseFloat(data.paradoTolerancia) || defaultLimits.paradoTolerancia,
                     };
-
                     updateConfigForm(currentLimits);
-
-                    limitsStatusEl.textContent = "Firestore Limites: Conectado (Atualizado)";
-                    limitsStatusEl.classList.remove('text-red-500', 'text-yellow-500');
-                    limitsStatusEl.classList.add('text-green-500');
-
-                    console.log("Limites operacionais atualizados:", currentLimits);
-                    // Re-processa o dashboard com os novos limites (se houver leituras em cache)
                     updateDashboard(readingsCache);
                 } else {
-                    console.warn("Documento de limites não encontrado. Tentando definir valores iniciais se for a primeira vez.");
-                    
-                    // Se o documento não existe, tentamos criar, o que exige permissão de escrita.
-                    setDoc(limitsDocRef, defaultLimits, { merge: true })
-                        .then(() => console.log("Documento de limites inicializado com sucesso."))
-                        .catch(error => {
-                            // AQUI O ERRO DE PERMISSÃO DE ESCRITA SERÁ CAPTURADO SE O USUÁRIO NÃO TIVER 'WRITE'
-                            console.error("[ERRO ESCRITA PERMISSÃO] Falha ao criar documento de limites. Verifique as Regras de Segurança:", error);
-                        });
-                        
-                    limitsStatusEl.textContent = "Firestore Limites: Inicializando...";
-                    limitsStatusEl.classList.remove('text-green-500', 'text-red-500');
-                    limitsStatusEl.classList.add('text-yellow-500');
+                    setDoc(limitsDocRef, defaultLimits, { merge: true }).catch(error => console.error("Falha ao criar limites:", error));
                 }
             }, (error) => {
-                // Tratamento de erro de leitura (geralmente permissão insuficiente)
-                console.error("[CONSOLE_ERROR] Erro no listener do Firestore (Limites):", error);
-                limitsStatusEl.textContent = "Firestore Limites: ERRO REGRAS/PERMISSÃO"; // Status mais explícito
-                limitsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
-                limitsStatusEl.classList.add('text-red-500');
+                console.error("Erro no listener de limites:", error);
             });
         }
         
-        // ✅ CORREÇÃO 4: Listener do Firestore para as Leituras do Sensor (Log Histórico) - CORRIGIDO
         function listenToReadings() {
-            if (!db) {
-                console.error("Firestore não inicializado.");
-                readingsStatusEl.textContent = "Firestore Log: Erro de Init";
-                readingsStatusEl.classList.remove('text-green-500');
-                readingsStatusEl.classList.add('text-red-500');
-                return;
-            }
-
-            // ✅ CORREÇÃO: Caminho correto e query ordenada
+            if (!db) return;
             const readingsColRef = collection(db, FIRESTORE_READINGS_COLLECTION_PATH);
-            const allReadingsQuery = query(readingsColRef, orderBy('timestamp', 'desc'), limit(20)); 
+            const allReadingsQuery = query(readingsColRef, orderBy('timestamp', 'desc'), limit(50));
             
-            console.log("Iniciando escuta no caminho:", FIRESTORE_READINGS_COLLECTION_PATH);
-
-            onSnapshot(allReadingsQuery, (snapshot) => {
-                readingsStatusEl.textContent = "Firestore Log: Conectado";
-                readingsStatusEl.classList.remove('text-red-500', 'text-yellow-500');
-                readingsStatusEl.classList.add('text-green-500');
-
+            unsubscribeReadings = onSnapshot(allReadingsQuery, (snapshot) => {
+                const historyBody = document.getElementById('readings-history');
                 if (snapshot.size > 0) {
-                    readingsCache = [];
-                    snapshot.forEach((doc) => {
+                    readingsCache = snapshot.docs.map(doc => {
                         const data = doc.data();
-
-                        // Garante que os campos chave existem
-                        if (data && typeof data.prof_media === 'number' && data.timestamp) {
-                            readingsCache.push({
-                                timestamp: data.timestamp,
-                                profMedia: data.prof_media,
-                                statusServico: data.status_servico || 'N/A',
-                                conexao: data.status_conexao || 'N/A'
-                            });
-                        }
+                        const statusServico = calculateStatus(data.prof_media, currentLimits);
+                        return {
+                            timestamp: data.timestamp,
+                            profMedia: data.prof_media,
+                            conexao: data.status_conexao || 'N/A',
+                            statusServico: statusServico
+                        };
                     });
-                    
-                    // Já vem ordenado pela query
                     updateDashboard(readingsCache);
                 } else {
-                    readingsHistoryBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada no Firestore.</td></tr>';
-                    updateDashboard([]); // Limpa o dashboard se não houver dados
+                    if(historyBody) historyBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada.</td></tr>';
+                    updateDashboard([]);
                 }
             }, (error) => {
-                // Tratamento de erro de leitura (geralmente permissão insuficiente)
-                console.error("[CONSOLE_ERROR] Erro no listener do Firestore (Log):", error);
-                readingsStatusEl.textContent = "Firestore Log: ERRO REGRAS/PERMISSÃO"; // Status mais explícito
-                readingsStatusEl.classList.remove('text-green-500', 'text-yellow-500');
-                readingsStatusEl.classList.add('text-red-500');
+                console.error("Erro no listener de leituras:", error);
             });
         }
         
-        // Função que processa os dados do Firestore e atualiza todos os elementos do Dashboard
+        function toggleSkeletons(showData = true) {
+            const elements = ['esp32-status', 'last-depth', 'avg-depth', 'productive-percent'];
+            elements.forEach(id => {
+                const valueElId = id === 'esp32-status' ? 'esp32-status-value' : id;
+                const skeleton = document.getElementById(`${id}-skeleton`);
+                const valueEl = document.getElementById(valueElId);
+                if (skeleton) skeleton.classList.toggle('hidden', showData);
+                if (valueEl) valueEl.classList.toggle('hidden', !showData);
+            });
+        }
+        
         function updateDashboard(readings) {
+            if(!document.getElementById('depth-chart')) return;
+            toggleSkeletons(true); 
             if (readings.length === 0) {
-                // Se não há leituras, reseta os cards de valor
-                lastDepthEl.textContent = `0.00 cm`;
-                avgDepthEl.textContent = `0.0 cm`;
-                productivePercentEl.textContent = `0.0%`;
-                esp32StatusEl.textContent = `N/A`;
-                esp32StatusEl.className = `data-value text-xl text-gray-400`;
                 renderStatus('Aguardando Dados', 0);
+                document.getElementById('esp32-status-value').textContent = `N/A`;
+                document.getElementById('avg-depth').textContent = `0.0 cm`;
+                document.getElementById('productive-percent').textContent = `0.0%`;
+                updateChart([]);
                 return;
             }
 
-            // 1. Última Leitura
             const latestReading = readings[0];
             const latestDepth = latestReading.profMedia;
-            
-            // 2. Cálculo do Status
-            const currentStatus = calculateStatus(latestDepth, currentLimits);
-            renderStatus(currentStatus, latestDepth);
+            renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
 
-            // 3. Status de Conexão ESP32
-            esp32StatusEl.textContent = latestReading.conexao || 'N/A';
-            esp32StatusEl.className = `data-value text-xl ${latestReading.conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
+            const espStatusEl = document.getElementById('esp32-status-value');
+            espStatusEl.textContent = latestReading.conexao || 'N/A';
+            espStatusEl.className = `data-value text-xl ${latestReading.conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
 
-            // 4. Média das Últimas Leituras (Baseado nas leituras limitadas)
-            const totalDepth = readings.reduce((sum, r) => sum + r.profMedia, 0);
-            const avgDepth = totalDepth / readings.length;
-            avgDepthEl.textContent = `${avgDepth.toFixed(2)} cm`;
+            const avgDepth = readings.reduce((sum, r) => sum + r.profMedia, 0) / readings.length;
+            document.getElementById('avg-depth').textContent = `${avgDepth.toFixed(2)} cm`;
             
-            // 5. Percentual Produtivo (NOTA: Atualmente usa a amostra limitada de 20 leituras)
-            const productiveCount = readings.filter(r => calculateStatus(r.profMedia, currentLimits) === 'Produtivo').length;
+            const productiveCount = readings.filter(r => r.statusServico === 'Produtivo').length;
             const productivePercentage = (readings.length > 0) ? (productiveCount / readings.length) * 100 : 0;
-            productivePercentEl.textContent = `${productivePercentage.toFixed(1)}%`;
+            document.getElementById('productive-percent').textContent = `${productivePercentage.toFixed(1)}%`;
 
-
-            // 6. Atualiza Tabela de Histórico
+            const readingsHistoryBody = document.getElementById('readings-history');
             readingsHistoryBody.innerHTML = '';
-            readings.forEach((r, index) => {
-                const status = calculateStatus(r.profMedia, currentLimits);
-                let statusClass = '';
-                if (status === 'Produtivo') statusClass = 'text-emerald-600 font-medium';
-                else if (status === 'Parado') statusClass = 'text-amber-600 font-medium';
-                else if (status === 'Manutenção') statusClass = 'text-red-600 font-medium';
-                else statusClass = 'text-gray-500';
+            readings.forEach(r => {
+                let statusClass = 'text-gray-500';
+                if (r.statusServico === 'Produtivo') statusClass = 'text-emerald-600 font-medium';
+                else if (r.statusServico === 'Parado') statusClass = 'text-amber-600 font-medium';
+                else if (r.statusServico === 'Manutenção') statusClass = 'text-red-600 font-medium';
 
                 const row = document.createElement('tr');
                 row.className = 'table-row';
-                row.innerHTML = `
-                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${formatTimestamp(r.timestamp)}</td>
-                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${r.profMedia.toFixed(2)}</td>
-                    <td class="px-6 py-3 whitespace-nowrap text-sm ${statusClass}">${status}</td>
-                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${r.conexao}</td>
-                `;
+                row.innerHTML = `<td class="px-6 py-3">${formatTimestamp(r.timestamp)}</td> <td class="px-6 py-3">${r.profMedia.toFixed(2)}</td> <td class="px-6 py-3 ${statusClass}">${r.statusServico}</td> <td class="px-6 py-3">${r.conexao}</td>`;
                 readingsHistoryBody.appendChild(row);
             });
+
+            updateChart(readings);
         }
 
-        // ✅ CORREÇÃO 5: Função para adicionar uma Leitura de Teste - CORRIGIDA
-        async function addTestReading() {
-            if (!db) return showMessage('Erro', 'Banco de dados não conectado.', 'error');
-
-            const readingsColRef = collection(db, FIRESTORE_READINGS_COLLECTION_PATH);
-            
-            // Gera valores mockados aleatórios
-            const mockDepth = (Math.random() * 80 + 5).toFixed(2); // Profundidade entre 5 e 85 cm
-            const mockConnection = Math.random() > 0.1 ? 'OK' : 'ERROR'; // 90% OK
-            const statusServico = calculateStatus(parseFloat(mockDepth), currentLimits); // Usa os limites atuais para definir o status
-
-            const testData = {
-                equipamento: EQUIPMENT_ID,
-                prof_media: parseFloat(mockDepth),
-                sen_1: -1,
-                sen_2: -1,
-                sen_3: parseFloat(mockDepth),
-                status_conexao: mockConnection,
-                status_servico: statusServico,
-                timestamp: serverTimestamp() // ✅ CORREÇÃO: Usar serverTimestamp do Firebase
+        function updateChart(readings) {
+            const ctxEl = document.getElementById('depth-chart');
+            if(!ctxEl) return;
+            const ctx = ctxEl.getContext('2d');
+            const reversedReadings = [...readings].reverse();
+            const chartData = {
+                labels: reversedReadings.map(r => r.timestamp.toDate()),
+                datasets: [{
+                    label: 'Profundidade Média (cm)',
+                    data: reversedReadings.map(r => r.profMedia),
+                    borderColor: 'rgb(4, 120, 87)',
+                    backgroundColor: 'rgba(4, 120, 87, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                }]
             };
 
-            try {
-                // Adiciona o documento de teste com os mesmos campos do seu ESP32
-                await addDoc(readingsColRef, testData);
-                showMessage('Leitura de Teste Inserida', `Profundidade de ${mockDepth} cm adicionada. A tabela deve atualizar automaticamente!`, 'success');
-            } catch (error) {
-                console.error("Erro ao adicionar leitura de teste:", error);
-                // Mensagem que alerta sobre a permissão de escrita
-                showMessage('Erro ao Inserir', 'Falha ao inserir leitura. Se você publicou as regras de segurança, verifique o console para mais detalhes!', 'error');
+            if (depthChart) {
+                depthChart.data = chartData;
+                depthChart.update();
+            } else {
+                depthChart = new Chart(ctx, {
+                    type: 'line', data: chartData,
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'dd/MM/yy HH:mm:ss' } },
+                            y: { beginAtZero: true, title: { display: true, text: 'Profundidade (cm)' } }
+                        }
+                    }
+                });
             }
         }
         
-        // Event listener para o botão de Leitura de Teste
-        document.getElementById('add-test-reading-btn').addEventListener('click', addTestReading);
-
-        // ✅ CORREÇÃO 6: Função de envio do formulário de limites (Firestore Write) - CORRIGIDA
-        limitsForm.addEventListener('submit', async (e) => {
+        async function handleSaveLimits(e) {
             e.preventDefault();
-
-            if (!db) {
-                showMessage('Erro de Conexão', 'O Firebase não está inicializado. Tente recarregar a aplicação.', 'error');
-                return;
-            }
-
+            if (!db) return showMessage('Erro de Conexão', 'O Firebase não está inicializado.', 'error');
             const newLimits = {
                 produtivoMin: parseFloat(document.getElementById('input-produtivo-min').value),
                 produtivoMax: parseFloat(document.getElementById('input-produtivo-max').value),
                 paradoCentro: parseFloat(document.getElementById('input-parado-centro').value),
                 paradoTolerancia: parseFloat(document.getElementById('input-parado-tolerancia').value),
-                equipamento: EQUIPMENT_ID,
-                updatedAt: serverTimestamp() // ✅ CORREÇÃO: Adicionar timestamp de atualização
+                updatedAt: serverTimestamp()
             };
-
-            // Validação simples
             if (newLimits.produtivoMin >= newLimits.produtivoMax) {
-                showMessage('Erro de Validação', 'A Profundidade Mínima Produtiva deve ser menor que a Máxima.', 'warning');
+                return showMessage('Erro de Validação', 'A Prof. Mínima deve ser menor que a Máxima.', 'warning');
+            }
+            try {
+                await setDoc(doc(db, FIREBASE_LIMITS_PATH), newLimits, { merge: true });
+                showMessage('Sucesso', 'Limites operacionais salvos no Firestore!', 'success');
+            } catch (error) {
+                console.error("Erro ao salvar limites:", error);
+                showMessage('Erro de Permissão', 'Não foi possível salvar os limites.', 'error');
+            }
+        }
+        
+        async function handleAddUser(e) {
+            e.preventDefault();
+            const email = e.target.elements['new-user-email'].value;
+            const password = e.target.elements['new-user-password'].value;
+            const role = 'Operação'; // Por padrão, usuários criados manualmente são Operação
+
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+
+                const newUserProfile = {
+                    uid: user.uid,
+                    email: user.email,
+                    displayName: user.email.split('@')[0],
+                    role: role,
+                    permissions: [],
+                    createdAt: serverTimestamp()
+                };
+                await setDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, user.uid), newUserProfile);
+                
+                showMessage('Sucesso', `Utilizador ${email} criado com sucesso!`, 'success');
+                e.target.reset();
+                loadAdminData('gerenciar');
+            } catch(error) {
+                let msg = 'Não foi possível criar o utilizador.';
+                if (error.code === 'auth/email-already-in-use') msg = 'Este e-mail já está em uso.';
+                if (error.code === 'auth/weak-password') msg = 'A senha deve ter no mínimo 6 caracteres.';
+                showMessage('Erro', msg, 'error');
+            }
+        }
+        
+        // --- NOVAS FUNÇÕES DE ADMINISTRAÇÃO ---
+        function setupAdminTabs() {
+            const adminTabsContainer = document.getElementById('admin-sub-tabs');
+            adminTabsContainer?.addEventListener('click', (e) => {
+                if (e.target.matches('.admin-sub-tab')) {
+                    const tabId = e.target.dataset.tab;
+                    adminTabsContainer.querySelectorAll('.admin-sub-tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    document.querySelectorAll('.admin-content').forEach(c => c.classList.add('hidden'));
+                    document.getElementById(`${tabId}-content`).classList.remove('hidden');
+                    loadAdminData(tabId);
+                }
+            });
+        }
+
+        async function loadAdminData(tab) {
+            const container = document.getElementById(`${tab}-list`);
+            if (!container) return;
+            container.innerHTML = `<p>Carregando...</p>`;
+
+            let q;
+            if (tab === 'pendentes') {
+                q = query(collection(db, FIRESTORE_USERS_COLLECTION_PATH), where("role", "==", "Pendente"));
+            } else {
+                q = query(collection(db, FIRESTORE_USERS_COLLECTION_PATH), where("role", "!=", "Pendente"));
+            }
+
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) {
+                container.innerHTML = `<p class="text-gray-500">Nenhum usuário encontrado.</p>`;
                 return;
             }
+            
+            container.innerHTML = querySnapshot.docs.map(doc => getUserCardHTML(doc.data(), tab)).join('');
+            attachAdminButtonListeners(container);
+        }
 
-            try {
-                const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
-                // ✅ CORREÇÃO: Usar { merge: true } para não sobrescrever campos existentes
-                await setDoc(limitsDocRef, newLimits, { merge: true }); 
-                showMessage('Sucesso', 'Os novos limites operacionais foram salvos no Firestore com sucesso!', 'success');
-            } catch (error) {
-                console.error("[ERRO PERMISSÃO] Erro ao salvar limites:", error);
-                // Mensagem específica para o usuário
-                showMessage('Erro de Permissão (Escrever)', 'Não foi possível salvar os limites. Por favor, verifique as Regras de Segurança do Firestore para permitir escrita no caminho.', 'error');
-            }
-        });
-
-        // Toggle entre Dashboard e Configuração
-        toggleViewButton.addEventListener('click', () => {
-            if (dashboardView.classList.contains('hidden')) {
-                dashboardView.classList.remove('hidden');
-                configView.classList.add('hidden');
-                toggleViewButton.textContent = 'Configurar Limites';
-            } else {
-                dashboardView.classList.add('hidden');
-                configView.classList.remove('hidden');
-                toggleViewButton.textContent = 'Voltar ao Dashboard';
-            }
-        });
-        
-        // ✅ CORREÇÃO 7: Inicialização do Firebase e Autenticação - CORRIGIDA
-        async function initializeAppAndAuth() {
-            // Verifica se a configuração foi fornecida (seja via injeção ou fallback)
-            if (!firebaseConfig || !firebaseConfig.apiKey) {
-                 console.error("Configuração do Firebase não encontrada. Verifique as variáveis de ambiente ou o fallback.");
-                 showMessage('Erro Crítico', 'Configuração do Firebase ausente. A aplicação não pode se conectar ao Firestore.', 'error');
-                 return;
-            }
-
-            try {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                // Configuração da persistência da sessão
-                await setPersistence(auth, browserSessionPersistence);
-
-                // Autenticação com o token customizado ou anônima
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    console.log("Autenticação via token customizado concluída.");
-                } else {
-                    // Tenta login anônimo
-                    await signInAnonymously(auth);
-                    console.log("Autenticação anônima concluída.");
-                }
-
-                // Listener do estado de autenticação
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        currentUserId = user.uid;
-                        document.getElementById('user-id').textContent = currentUserId;
-                        document.getElementById('app-id').textContent = appId;
-                        console.log("Usuário autenticado:", currentUserId);
-                        
-                        // Inicia os listeners de dados APÓS a autenticação
-                        listenToLimits();
-                        listenToReadings(); // Conecta ao Firestore Log
-                    } else {
-                        // Caso a autenticação falhe, ainda exibe o erro no console
-                        console.log("Usuário deslogado ou anonimamente logado.");
-                    }
-                });
-
-            } catch (error) {
-                console.error("Erro fatal na inicialização do Firebase:", error);
-                showMessage('Erro Crítico de Inicialização (Firebase)', 
-                    `O login falhou. Por favor, verifique se a chave API é válida e se o Firebase Auth está ativado: ${error.message}.`, 
-                    'error');
+        function getUserCardHTML(user, type) {
+            const permissions = user.permissions?.join(', ') || 'Nenhuma';
+            if (type === 'pendentes') {
+                return `<div class="p-4 border rounded-lg flex justify-between items-center" id="user-card-${user.uid}">
+                            <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
+                            <div class="flex gap-2">
+                                <button data-uid="${user.uid}" class="approve-user-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Aprovar</button>
+                                <button data-uid="${user.uid}" class="reject-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Rejeitar</button>
+                            </div>
+                        </div>`;
+            } else { // gerenciar
+                return `<div class="p-4 border rounded-lg" id="user-card-${user.uid}">
+                            <div class="flex justify-between items-center">
+                                <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
+                                <button data-uid="${user.uid}" class="manage-user-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Gerenciar</button>
+                            </div>
+                            <div class="mt-2 text-xs text-gray-500">
+                                <p><strong>Nível:</strong> ${user.role}</p>
+                                ${user.role === 'Operação' ? `<p><strong>Permissões:</strong> ${permissions}</p>` : ''}
+                            </div>
+                        </div>`;
             }
         }
 
-        // Lógica de Splash Screen (Animation) - MANTIDA ORIGINAL
-        window.onload = function () {
-            const splashScreen = document.getElementById('splashScreen');
-            const splashLogo = document.getElementById('splash-logo');
-            const splashSlogan = document.getElementById('splash-slogan');
-            const headerLogo = document.getElementById('header-logo');
+        function attachAdminButtonListeners(container) {
+            container.querySelectorAll('.approve-user-btn').forEach(btn => btn.addEventListener('click', e => approveUser(e.target.dataset.uid)));
+            container.querySelectorAll('.reject-user-btn').forEach(btn => btn.addEventListener('click', e => rejectUser(e.target.dataset.uid)));
+            container.querySelectorAll('.manage-user-btn').forEach(btn => btn.addEventListener('click', e => manageUser(e.target.dataset.uid)));
+        }
 
-            // 1. Mostrar logo e slogan no splash screen
-            setTimeout(() => {
-                splashLogo.style.opacity = '1';
-                splashLogo.style.transform = 'scale(1)'; // Efeito de zoom
-                headerLogo.classList.add('header-logo-start'); // Posiciona o logo no centro (inicialmente)
-            }, 100); 
+        async function approveUser(uid) {
+            const newRole = prompt("Aprovar usuário. Defina o nível: Master, Lider, ou Operação", "Operação");
+            if (newRole && ['Master', 'Lider', 'Operação'].includes(newRole)) {
+                await updateDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid), { role: newRole });
+                showMessage('Sucesso', 'Usuário aprovado!', 'success');
+                loadAdminData('pendentes');
+                loadAdminData('gerenciar');
+            } else if(newRole !== null) {
+                showMessage('Erro', 'Nível inválido. Use Master, Lider ou Operação.', 'error');
+            }
+        }
 
-            setTimeout(() => {
-                splashSlogan.style.opacity = '1';
-            }, 600); 
+        async function rejectUser(uid) {
+            if (confirm('Tem certeza que deseja rejeitar este usuário? A conta de autenticação NÃO será removida, apenas o registro de perfil.')) {
+                await deleteDoc(doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid));
+                showMessage('Sucesso', 'Usuário rejeitado e removido.', 'success');
+                loadAdminData('pendentes');
+            }
+        }
+        
+        async function manageUser(uid) {
+            const userRef = doc(db, FIRESTORE_USERS_COLLECTION_PATH, uid);
+            const userDoc = await getDoc(userRef);
+            if(!userDoc.exists()) return showMessage('Erro', 'Usuário não encontrado.', 'error');
+            const userData = userDoc.data();
 
-            // 2. Iniciar animação e esconder splash após 3.5s
-            setTimeout(() => {
-                splashScreen.style.opacity = '0'; // Fade out
-                
-                // Mover e diminuir o logo para o header
-                headerLogo.classList.remove('header-logo-start'); 
-                headerLogo.classList.add('h-10'); 
-                headerLogo.style.opacity = '1';
-                headerLogo.style.transform = 'none';
+            const newRole = prompt("Gerenciar usuário. Defina o nível: Master, Lider, ou Operação", userData.role);
+            if (!newRole || !['Master', 'Lider', 'Operação'].includes(newRole)) {
+                if(newRole !== null) showMessage('Erro', 'Nível inválido.', 'error');
+                return;
+            }
+            
+            let permissions = [];
+            if (newRole === 'Operação') {
+                const sulcador = confirm("Permitir acesso à aba Sulcador?");
+                const fertirrigacao = confirm("Permitir acesso à aba Fertirrigação?");
+                const limites = confirm("Permitir acesso à aba Limites?");
+                if(sulcador) permissions.push('sulcador');
+                if(fertirrigacao) permissions.push('fertirrigacao');
+                if(limites) permissions.push('limites');
+            }
 
-                // Mostrar o conteúdo principal
-                document.getElementById('app-container').classList.remove('opacity-0', 'pointer-events-none');
-                
-                // Remover splash e inicializar o app (Firebase) após a transição
-                setTimeout(() => {
-                    splashScreen.remove();
-                    initializeAppAndAuth();
-                }, 1500); 
+            await updateDoc(userRef, { role: newRole, permissions: permissions });
+            showMessage('Sucesso', 'Usuário atualizado!', 'success');
+            loadAdminData('gerenciar');
+        }
 
-            }, 3500); // 3.5 segundos de duração do splash total
-        };
+        // --- HTML TEMPLATES ---
+        function getLoginHTML() { 
+            return `
+            <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl space-y-6 border-t-8 border-emerald-600">
+                <div class="text-center"><img class="mx-auto h-20 w-auto" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras"><h2 class="mt-4 text-3xl font-extrabold text-gray-900">Acessar Sistema</h2></div>
+                <div class="space-y-4">
+                    <button id="google-login-button" class="w-full flex justify-center items-center gap-3 py-2 px-4 border rounded-md shadow-sm text-sm font-medium bg-white hover:bg-gray-50"><img class="h-5 w-5" src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png" alt="Google logo"> Acessar com Google</button>
+                    <div class="relative"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center text-sm"><span class="px-2 bg-white text-gray-500">Ou continue com</span></div></div>
+                </div>
+                <form id="login-form" class="space-y-4" onsubmit="return false;">
+                    <div><input id="email" type="email" autocomplete="email" required class="w-full px-3 py-2 border rounded-md" placeholder="Endereço de e-mail"></div>
+                    <div><input id="password" type="password" autocomplete="current-password" required class="w-full px-3 py-2 border rounded-md" placeholder="Senha"></div>
+                    <div class="flex items-center"><input id="remember-me" type="checkbox" class="h-4 w-4 text-emerald-600 rounded"><label for="remember-me" class="ml-2 block text-sm">Lembrar usuário</label></div>
+                    <div id="login-error" class="text-red-600 text-sm text-center hidden"></div>
+                    <div class="flex flex-col sm:flex-row gap-2 pt-2">
+                        <button type="button" id="login-button" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md">Entrar</button>
+                        <button type="button" id="request-login-button" class="w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md">Solicitar Login</button>
+                    </div>
+                </form>
+            </div>
+            <div id="request-login-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                 <div id="request-login-modal-content" class="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full relative" onclick="event.stopPropagation()">
+                     <h2 class="text-2xl font-bold text-gray-900 mb-6">Solicitar Acesso</h2>
+                     <button id="close-modal-button" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
+                     <form id="request-login-form" class="space-y-4">
+                         <div><label for="req-nome" class="block text-sm font-medium text-gray-700">Nome Completo <span class="text-red-500">*</span></label><input id="req-nome" name="nome" type="text" required class="mt-1 w-full p-2 border rounded-md"></div>
+                         <div><label for="req-id" class="block text-sm font-medium text-gray-700">ID (Opcional)</label><input id="req-id" name="id" type="text" class="mt-1 w-full p-2 border rounded-md"></div>
+                         <div><label for="req-email" class="block text-sm font-medium text-gray-700">E-mail <span class="text-red-500">*</span></label><input id="req-email" name="email" type="email" required class="mt-1 w-full p-2 border rounded-md"></div>
+                         <div><label for="req-telefone" class="block text-sm font-medium text-gray-700">Telefone <span class="text-red-500">*</span></label><input id="req-telefone" name="telefone" type="tel" required class="mt-1 w-full p-2 border rounded-md"></div>
+                         <button type="submit" id="send-request-button" class="w-full py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md">Enviar Solicitação</button>
+                     </form>
+                </div>
+            </div>`; 
+        }
 
+        function getSplashHTML() { return `<img id="splash-logo" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras" class="opacity-0 scale-125 h-36"><p id="splash-slogan" class="text-gray-700 text-xl font-semibold opacity-0 mt-4">A energia que move a região</p>`; }
+        
+        function getAppHTML(user, profile) {
+            const username = profile.displayName || user.email.split('@')[0];
+            const canSee = (tab) => profile.role === 'Master' || profile.role === 'Lider' || (profile.permissions && profile.permissions.includes(tab));
+
+            return `
+                <header class="shadow-md bg-white sticky top-0 z-40">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex justify-between items-center">
+                        <img id="header-logo" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras" class="header-logo opacity-0">
+                        <h1 class="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight">Monitoramento Operacional</h1>
+                        <div class="flex items-center space-x-4"><span class="hidden sm:block text-sm font-medium text-gray-600">${username} (${profile.role})</span><button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg text-sm">Sair</button></div>
+                    </div>
+                    <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 sulcador">
+                        ${canSee('sulcador') ? `<button class="tab-button active" data-tab="sulcador">Sulcador</button>` : ''}
+                        ${canSee('fertirrigacao') ? `<button class="tab-button" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
+                        ${canSee('limites') ? `<button class="tab-button" data-tab="limites">Limites</button>` : ''}
+                        ${profile.role === 'Master' ? `<button class="tab-button" data-tab="cadastro">Cadastro</button>` : ''}
+                    </nav>
+                </header>
+                <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+                    ${canSee('sulcador') ? `<div id="sulcador-tab" class="tab-content active"><div class="mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real (Usina Pitangueiras)</h2><p class="text-gray-500 mt-1">Dados atualizados a cada nova leitura do sensor ESP32.</p></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div><p class="text-xs text-gray-400 mt-4">Firestore Path Limites: <code class="bg-gray-100 p-1 rounded font-mono" id="firestore-path-display">N/A</code></p></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div></div>` : ''}
+                    ${canSee('fertirrigacao') ? `<div id="fertirrigacao-tab" class="tab-content text-center py-20"><h2 class="text-9xl">🚧</h2><p class="text-4xl font-bold text-gray-500 mt-4">Em Construção</p></div>` : ''}
+                    ${canSee('limites') ? `<div id="limites-tab" class="tab-content"><div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500"><h2 class="text-3xl font-bold mb-6 text-gray-900">Configuração de Limites Operacionais</h2><p class="text-gray-600 mb-8">Ajuste os valores que definem o estado de **Produtivo** e **Manutenção** do equipamento.</p><form id="limits-form"><fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset><fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset><button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Limites no Firestore</button></form></div></div>` : ''}
+                    ${profile.role === 'Master' ? getAdminHTML() : ''}
+                </main>
+            `;
+        }
+
+        function getAdminHTML() {
+            return `
+            <div id="cadastro-tab" class="tab-content">
+                <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-purple-500">
+                    <h2 class="text-3xl font-bold text-gray-900 mb-6">Painel de Administração</h2>
+                    <div id="admin-sub-tabs" class="flex gap-2 border-b mb-6">
+                        <div class="admin-sub-tab active" data-tab="pendentes">Aprovações Pendentes</div>
+                        <div class="admin-sub-tab" data-tab="gerenciar">Gerenciar Usuários</div>
+                        <div class="admin-sub-tab" data-tab="adicionar">Adicionar Manualmente</div>
+                    </div>
+
+                    <div id="pendentes-content" class="admin-content space-y-4">
+                        <h3 class="text-xl font-semibold">Usuários aguardando aprovação</h3>
+                        <div id="pendentes-list" class="space-y-3"></div>
+                    </div>
+                    <div id="gerenciar-content" class="admin-content hidden space-y-4">
+                        <h3 class="text-xl font-semibold">Gerenciar usuários existentes</h3>
+                        <div id="gerenciar-list" class="space-y-3"></div>
+                    </div>
+                    <div id="adicionar-content" class="admin-content hidden">
+                         <form id="add-user-form" class="mb-10 p-6 border rounded-lg"><h3 class="text-lg font-semibold text-purple-700 mb-4">Adicionar Novo Usuário</h3><div class="space-y-4"><input name="new-user-email" type="email" placeholder="E-mail do novo usuário" required class="w-full p-2 border rounded-md"><input name="new-user-password" type="password" placeholder="Senha (mínimo 6 caracteres)" required class="w-full p-2 border rounded-md"><button type="submit" class="w-full py-2 rounded-md shadow-lg text-white bg-purple-600 hover:bg-purple-700">Criar Usuário</button></div></form>
+                    </div>
+                </div>
+            </div>`;
+        }
     </script>
 </body>
 </html>
