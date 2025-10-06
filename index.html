@@ -3,13 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v5.6</title>
-    <!-- Tailwind CSS -->
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v6.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <!-- Google Platform Library for Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -35,15 +32,18 @@
         .header-logo-start { height: 150px !important; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; }
 
         .metric-card { 
-            background-color: white; padding: 1.5rem; border-radius: 0.75rem; 
+            background-color: white; 
+            border-radius: 0.75rem; 
             transition: transform 0.3s ease, box-shadow 0.3s ease;
             box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+            position: relative; 
+            overflow: hidden; 
         }
         .metric-card:hover { transform: translateY(-5px); }
 
         .tab-button { transition: all 0.2s ease-in-out; border-bottom: 4px solid transparent; padding: 1rem 0.25rem; font-weight: 600; color: #6b7280; }
         .tab-button.active { font-weight: 700; }
-        #tabs-container.sulcador .tab-button[data-tab="sulcador"].active { border-color: var(--color-primary); color: var(--color-primary); }
+        #tabs-container.implementos .tab-button[data-tab="implementos"].active { border-color: var(--color-primary); color: var(--color-primary); }
         #tabs-container.fertirrigacao .tab-button[data-tab="fertirrigacao"].active { border-color: var(--color-fertirrigacao); color: var(--color-fertirrigacao); }
         #tabs-container.limites .tab-button[data-tab="limites"].active { border-color: var(--color-limites); color: var(--color-limites); }
         #tabs-container.cadastro .tab-button[data-tab="cadastro"].active { border-color: var(--color-cadastro); color: var(--color-cadastro); }
@@ -57,7 +57,7 @@
         .table-row:nth-child(even) { background-color: #f3f4f6; }
 
         .status-produtivo { border-color: #10b981 !important; color: #059669 !important; }
-        .status-parado { border-color: #fbbf24 !important; color: #d97706 !important; }
+        .status-parado { border-color: #f59e0b !important; color: #d97706 !important; }
         .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; }
         .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; }
 
@@ -65,6 +65,64 @@
         .modal-container:not(.hidden) .modal-content { transform: scale(1); opacity: 1; }
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
+
+        /* --- CLASSES PARA ANIMAÇÃO --- */
+        @property --angle {
+          syntax: '<angle>';
+          initial-value: 0deg;
+          inherits: false;
+        }
+
+        @keyframes rotate {
+          to {
+            --angle: 360deg;
+          }
+        }
+
+        .animated-border {
+            --animation-color: transparent;
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.75rem;
+        }
+
+        .animated-border::before {
+            content: '';
+            position: absolute;
+            z-index: 0;
+            inset: -3px;
+            border-radius: inherit;
+            background: conic-gradient(
+                from var(--angle),
+                var(--animation-color),
+                transparent 30%,
+                transparent
+            );
+            animation: rotate 8s linear infinite;
+        }
+
+        .animated-border::after {
+            content: '';
+            position: absolute;
+            z-index: 1;
+            inset: 2px;
+            border-radius: 0.6rem; 
+            background: white;
+        }
+        
+        .card-content-wrapper {
+            position: relative;
+            z-index: 2;
+            padding: 1.5rem;
+        }
+
+        .login-card-border-top {
+            border-top: 8px solid var(--animation-color, var(--color-primary));
+            padding: 0;
+        }
+        .login-card-border-top .card-content-wrapper {
+            padding: 2rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -96,7 +154,9 @@
         let currentUserProfile = null;
         let readingsCache = [];
         let depthChart = null;
+        let productiveChart = null;
         let currentLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0 };
+        const CONNECTION_TIMEOUT_MS = 5 * 60 * 1000;
         
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
@@ -186,9 +246,12 @@
             const password = document.getElementById('password').value;
             const rememberMe = document.getElementById('remember-me').checked;
             const [btn, errEl] = [document.getElementById('login-button'), document.getElementById('login-error')];
+            const loginCard = document.getElementById('login-card');
             
             errEl.classList.add('hidden');
             btn.disabled = true; btn.textContent = "Entrando...";
+            if (loginCard) loginCard.style.setProperty('--animation-color', 'var(--color-primary)');
+
             try { 
                 await signInWithEmailAndPassword(auth, email, password);
                 if (rememberMe) {
@@ -197,8 +260,15 @@
                     localStorage.removeItem('savedUserEmail');
                 }
             } 
-            catch (error) { errEl.textContent = "E-mail ou senha incorretos."; errEl.classList.remove('hidden'); } 
-            finally { btn.disabled = false; btn.textContent = "Entrar"; }
+            catch (error) { 
+                errEl.textContent = "E-mail ou senha incorretos."; 
+                errEl.classList.remove('hidden'); 
+                if (loginCard) loginCard.style.setProperty('--animation-color', '#ef4444');
+            } 
+            finally { 
+                btn.disabled = false; 
+                btn.textContent = "Entrar"; 
+            }
         }
 
         function handleLoginRequest(e) {
@@ -210,8 +280,7 @@
             const telefone = form.elements['telefone'].value;
 
             if (!nome || !email || !telefone) {
-                showMessage('Campos Obrigatórios', 'Por favor, preencha Nome, E-mail e Telefone.', 'warning');
-                return;
+                return showMessage('Campos Obrigatórios', 'Por favor, preencha Nome, E-mail e Telefone.', 'warning');
             }
             
             const whatsappNumber = '5516992886004'; 
@@ -261,6 +330,8 @@
             document.getElementById('logout-button')?.addEventListener('click', () => {
                 unsubscribeLimits();
                 unsubscribeReadings();
+                if (depthChart) { depthChart.destroy(); depthChart = null; }
+                if (productiveChart) { productiveChart.destroy(); productiveChart = null; }
                 signOut(auth);
             });
             document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
@@ -339,14 +410,33 @@
             const statusCard = document.getElementById('current-status-card');
             const statusText = document.getElementById('status-value-text');
             if(!statusCard || !statusText) return;
+
             statusText.textContent = status;
-            statusCard.className = statusCard.className.split(' ').filter(c => !c.startsWith('status-') && !c.startsWith('border-')).join(' ');
-            let colorClass = 'border-gray-500';
-            if (status === 'Produtivo') { statusCard.classList.add('status-produtivo'); colorClass = 'border-emerald-500'; } 
-            else if (status === 'Parado') { statusCard.classList.add('status-parado'); colorClass = 'border-amber-500'; }
-            else if (status === 'Manutenção') { statusCard.classList.add('status-manutencao'); colorClass = 'border-red-500'; }
-            else { statusCard.classList.add('status-erro'); }
-            statusCard.classList.add(colorClass);
+            const allClasses = ['status-produtivo', 'status-parado', 'status-manutencao', 'status-erro'];
+            statusCard.classList.remove(...allClasses);
+
+            let statusClassToAdd = '';
+            let animationColor = '#6b7280';
+
+            if (status === 'Produtivo') { 
+                statusClassToAdd = 'status-produtivo';
+                animationColor = '#10b981';
+            } 
+            else if (status === 'Parado') { 
+                statusClassToAdd = 'status-parado';
+                animationColor = '#f59e0b';
+            }
+            else if (status === 'Manutenção') { 
+                statusClassToAdd = 'status-manutencao';
+                animationColor = '#ef4444';
+            }
+            else { 
+                statusClassToAdd = 'status-erro';
+            }
+
+            if (statusClassToAdd) statusCard.classList.add(statusClassToAdd);
+            statusCard.style.setProperty('--animation-color', animationColor);
+
             document.getElementById('last-depth').textContent = `${depth.toFixed(2)} cm`;
         }
 
@@ -364,8 +454,6 @@
         
         function listenToLimits() {
             if (!db) return;
-            const pathDisplay = document.getElementById('firestore-path-display');
-            if(pathDisplay) pathDisplay.textContent = FIREBASE_LIMITS_PATH; 
             
             const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
             const defaultLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0, equipamento: 'EQP_USINA_01', createdAt: serverTimestamp() };
@@ -413,43 +501,66 @@
         }
         
         function toggleSkeletons(showData = true) {
-            const elements = ['esp32-status', 'last-depth', 'avg-depth', 'productive-percent'];
+            const elements = ['last-depth', 'avg-depth'];
             elements.forEach(id => {
-                const valueElId = id === 'esp32-status' ? 'esp32-status-value' : id;
                 const skeleton = document.getElementById(`${id}-skeleton`);
-                const valueEl = document.getElementById(valueElId);
+                const valueEl = document.getElementById(id);
                 if (skeleton) skeleton.classList.toggle('hidden', showData);
                 if (valueEl) valueEl.classList.toggle('hidden', !showData);
             });
+
+            const productiveTextEl = document.getElementById('productive-percent-text');
+            if (productiveTextEl) {
+                const skeleton = productiveTextEl.querySelector('#productive-percent-skeleton');
+                const span = productiveTextEl.querySelector('span');
+                if (skeleton) skeleton.classList.toggle('hidden', showData);
+                if (span) span.classList.toggle('hidden', !showData);
+            }
         }
         
         function updateDashboard(readings) {
             if(!document.getElementById('depth-chart')) return;
             toggleSkeletons(readings.length > 0);
+            
+            document.getElementById('last-depth-card')?.style.setProperty('--animation-color', '#6366f1');
+            document.getElementById('avg-depth-card')?.style.setProperty('--animation-color', '#a855f7');
+            document.getElementById('productive-percent-card')?.style.setProperty('--animation-color', '#14b8a6');
+
+            const avgRawDepth = readings.length > 0 ? readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length : 0;
+            const hMesa = currentLimits.paradoCentro || 0;
+            const avgOperationDepth = hMesa - avgRawDepth;
 
             if (readings.length === 0) {
-                renderStatus('Aguardando Dados', 0);
-                document.getElementById('esp32-status-value').textContent = `N/A`;
+                renderStatus('Aguardando', 0);
                 document.getElementById('avg-depth').textContent = `0.0 cm`;
-                document.getElementById('productive-percent').textContent = `0.0%`;
-                updateChart([]);
+                updateProductiveChart(0, 0);
+                updateChart([], avgOperationDepth);
                 return;
             }
 
             const latestReading = readings[0];
             const latestDepth = latestReading.prof_media || 0;
+            const latestTimestamp = latestReading.timestamp.toDate();
+            const isConnected = (Date.now() - latestTimestamp.getTime()) < CONNECTION_TIMEOUT_MS;
+
+            const badge = document.getElementById('connection-status-badge');
+            const badgeText = document.getElementById('connection-status-text');
+            badge.classList.remove('hidden', 'bg-gray-400', 'bg-emerald-500', 'bg-red-500');
+            badge.classList.add('flex');
+            if (isConnected) {
+                badgeText.textContent = 'Conectado';
+                badge.classList.add('bg-emerald-500');
+            } else {
+                badgeText.textContent = 'Desconectado';
+                badge.classList.add('bg-red-500');
+            }
+
             renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
-
-            const espStatusEl = document.getElementById('esp32-status-value');
-            espStatusEl.textContent = latestReading.status_conexao || 'N/A';
-            espStatusEl.className = `data-value text-xl ${latestReading.status_conexao === 'OK' ? 'text-emerald-600' : 'text-red-600'}`;
-
-            const avgDepth = readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length;
-            document.getElementById('avg-depth').textContent = `${avgDepth.toFixed(2)} cm`;
+            document.getElementById('avg-depth').textContent = `${avgOperationDepth.toFixed(2)} cm`;
             
             const productiveCount = readings.filter(r => r.statusServico === 'Produtivo').length;
-            const productivePercentage = (readings.length > 0) ? (productiveCount / readings.length) * 100 : 0;
-            document.getElementById('productive-percent').textContent = `${productivePercentage.toFixed(1)}%`;
+            const unproductiveCount = readings.length - productiveCount;
+            updateProductiveChart(productiveCount, unproductiveCount);
 
             const readingsHistoryBody = document.getElementById('readings-history');
             readingsHistoryBody.innerHTML = '';
@@ -465,28 +576,84 @@
                 readingsHistoryBody.appendChild(row);
             });
 
-            updateChart(readings);
+            updateChart(readings, avgOperationDepth);
         }
 
-        function updateChart(readings) {
+        function updateProductiveChart(productiveCount, unproductiveCount) {
+            const ctxEl = document.getElementById('productive-chart');
+            if (!ctxEl) return;
+            const ctx = ctxEl.getContext('2d');
+            const total = productiveCount + unproductiveCount;
+            const percentage = total > 0 ? (productiveCount / total) * 100 : 0;
+
+            const textEl = document.getElementById('productive-percent-text');
+            if (textEl) {
+                const skeleton = textEl.querySelector('#productive-percent-skeleton');
+                const span = textEl.querySelector('span');
+                if(skeleton) skeleton.classList.add('hidden');
+                if(span) {
+                    span.classList.remove('hidden');
+                    span.textContent = `${percentage.toFixed(0)}%`;
+                }
+            }
+
+            const chartData = {
+                labels: ['Produtivo', 'Improdutivo'],
+                datasets: [{
+                    data: [productiveCount, unproductiveCount],
+                    backgroundColor: [ 'rgb(16, 185, 129)', 'rgb(229, 231, 235)' ],
+                    borderColor: '#fff',
+                    borderWidth: 2,
+                }]
+            };
+
+            if (productiveChart) {
+                productiveChart.data = chartData;
+                productiveChart.update();
+            } else {
+                productiveChart = new Chart(ctx, {
+                    type: 'doughnut', data: chartData,
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        cutout: '75%',
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    }
+                });
+            }
+        }
+
+        function updateChart(readings, avgOperationDepth) {
             const ctxEl = document.getElementById('depth-chart');
             if(!ctxEl) return;
             const ctx = ctxEl.getContext('2d');
             const reversedReadings = [...readings].reverse();
+            
             const chartData = {
                 labels: reversedReadings.map(r => r.timestamp.toDate()),
-                datasets: [{
-                    label: 'Profundidade Média (cm)',
-                    data: reversedReadings.map(r => r.prof_media || 0),
-                    borderColor: 'rgb(4, 120, 87)',
-                    backgroundColor: 'rgba(4, 120, 87, 0.1)',
-                    fill: true,
-                    tension: 0.3,
-                }]
+                datasets: [
+                    {
+                        label: 'Profundidade (Sensor)',
+                        data: reversedReadings.map(r => r.prof_media || 0),
+                        borderColor: 'rgb(59, 130, 246)', // blue-500
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Prof. Operação Média (Amostra)',
+                        data: reversedReadings.map(() => avgOperationDepth),
+                        borderColor: 'rgb(168, 85, 247)', // purple-500
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        fill: false,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                    }
+                ]
             };
 
             if (depthChart) {
                 depthChart.data = chartData;
+                depthChart.options.scales.y.max = currentLimits.paradoCentro;
                 depthChart.update();
             } else {
                 depthChart = new Chart(ctx, {
@@ -495,7 +662,16 @@
                         responsive: true, maintainAspectRatio: false,
                         scales: {
                             x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'dd/MM/yy HH:mm:ss' } },
-                            y: { beginAtZero: true, title: { display: true, text: 'Profundidade (cm)' } }
+                            y: { 
+                                beginAtZero: true, 
+                                max: currentLimits.paradoCentro,
+                                title: { display: true, text: 'Profundidade (cm)' } 
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: true
+                            }
                         }
                     }
                 });
@@ -562,7 +738,6 @@
             }
         }
         
-        // --- FUNÇÕES DE ADMINISTRAÇÃO (COM MODAIS CUSTOMIZADOS) ---
         function setupAdminTabs() {
             const adminTabsContainer = document.getElementById('admin-sub-tabs');
             adminTabsContainer?.addEventListener('click', (e) => {
@@ -739,22 +914,27 @@
         // --- HTML TEMPLATES ---
         function getLoginHTML() { 
             return `
-            <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl space-y-6 border-t-8 border-emerald-600">
-                <div class="text-center"><img class="mx-auto h-20 w-auto" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras"><h2 class="mt-4 text-3xl font-extrabold text-gray-900">Acessar Sistema</h2></div>
-                
-                <form id="login-form" class="space-y-4" onsubmit="return false;">
-                    <div><input id="email" type="email" autocomplete="email" required class="w-full px-3 py-2 border rounded-md" placeholder="Endereço de e-mail"></div>
-                    <div><input id="password" type="password" autocomplete="current-password" required class="w-full px-3 py-2 border rounded-md" placeholder="Senha"></div>
-                    <div class="flex items-center"><input id="remember-me" type="checkbox" class="h-4 w-4 text-emerald-600 rounded"><label for="remember-me" class="ml-2 block text-sm">Lembrar usuário</label></div>
-                    <div id="login-error" class="text-red-600 text-sm text-center hidden"></div>
-                    <div class="flex items-center gap-2 pt-2">
-                        <button type="button" id="login-button" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md">Entrar</button>
-                        <button type="button" id="google-login-button" title="Acessar com Google" class="flex-shrink-0 p-2 border rounded-md shadow-sm bg-white hover:bg-gray-50">
-                            <svg class="w-5 h-5" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C44.962,32.645,48,27.135,48,20C48,18.896,47.9,17.82,47.6,16.8z"></path></svg>
-                        </button>
-                        <button type="button" id="request-login-button" class="w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md">Solicitar Login</button>
+            <div id="login-card" class="animated-border login-card-border-top max-w-md w-full bg-white shadow-2xl">
+                <div class="card-content-wrapper space-y-6">
+                    <div class="text-center">
+                        <img class="mx-auto h-20 w-auto" src="https://usinapitangueiras.com.br/wp-content/uploads/2020/04/usina-pitangueiras-logo.png" alt="Logo Usina Pitangueiras">
+                        <h2 class="mt-4 text-3xl font-extrabold text-gray-900">Acessar Sistema</h2>
                     </div>
-                </form>
+                    
+                    <form id="login-form" class="space-y-4" onsubmit="return false;">
+                        <div><input id="email" type="email" autocomplete="email" required class="w-full px-3 py-2 border rounded-md" placeholder="Endereço de e-mail"></div>
+                        <div><input id="password" type="password" autocomplete="current-password" required class="w-full px-3 py-2 border rounded-md" placeholder="Senha"></div>
+                        <div class="flex items-center"><input id="remember-me" type="checkbox" class="h-4 w-4 text-emerald-600 rounded"><label for="remember-me" class="ml-2 block text-sm">Lembrar usuário</label></div>
+                        <div id="login-error" class="text-red-600 text-sm text-center hidden"></div>
+                        <div class="flex items-center gap-2 pt-2">
+                            <button type="button" id="login-button" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md">Entrar</button>
+                            <button type="button" id="google-login-button" title="Acessar com Google" class="flex-shrink-0 p-2 border rounded-md shadow-sm bg-white hover:bg-gray-50">
+                                <svg class="w-5 h-5" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C44.962,32.645,48,27.135,48,20C48,18.896,47.9,17.82,47.6,16.8z"></path></svg>
+                            </button>
+                            <button type="button" id="request-login-button" class="w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md">Solicitar Login</button>
+                        </div>
+                    </form>
+                </div>
             </div>
             <div id="request-login-modal" class="modal-container hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
                  <div class="modal-content bg-white rounded-lg shadow-2xl p-8 max-w-md w-full relative" onclick="event.stopPropagation()">
@@ -767,7 +947,7 @@
                          <div><label for="req-telefone" class="block text-sm font-medium text-gray-700">Telefone <span class="text-red-500">*</span></label><input id="req-telefone" name="telefone" type="tel" required class="mt-1 w-full p-2 border rounded-md"></div>
                          <button type="submit" id="send-request-button" class="w-full py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md">Enviar Solicitação</button>
                      </form>
-                </div>
+                 </div>
             </div>`; 
         }
 
@@ -780,7 +960,7 @@
                 return profile.permissions && profile.permissions.includes(tab);
             };
 
-            const allTabs = ['sulcador', 'fertirrigacao', 'limites'];
+            const allTabs = ['implementos', 'fertirrigacao', 'limites'];
             if (profile.role === 'Master') allTabs.push('cadastro');
             
             const visibleTabs = allTabs.filter(canSee);
@@ -807,14 +987,14 @@
                         </div>
                     </div>
                     <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${firstVisibleTab || ''}">
-                        ${canSee('sulcador') ? `<button class="tab-button ${firstVisibleTab === 'sulcador' ? 'active' : ''}" data-tab="sulcador">Sulcador</button>` : ''}
+                        ${canSee('implementos') ? `<button class="tab-button ${firstVisibleTab === 'implementos' ? 'active' : ''}" data-tab="implementos">Implementos</button>` : ''}
                         ${canSee('fertirrigacao') ? `<button class="tab-button ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
                         ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Limites</button>` : ''}
                         ${profile.role === 'Master' ? `<button class="tab-button ${firstVisibleTab === 'cadastro' ? 'active' : ''}" data-tab="cadastro">Cadastro</button>` : ''}
                     </nav>
                 </header>
                 <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-                    <div id="sulcador-tab" class="tab-content ${firstVisibleTab === 'sulcador' ? 'active' : ''}">${getSulcadorTabHTML()}</div>
+                    <div id="implementos-tab" class="tab-content ${firstVisibleTab === 'implementos' ? 'active' : ''}">${getImplementosTabHTML()}</div>
                     <div id="fertirrigacao-tab" class="tab-content ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}">${getFertirrigacaoTabHTML()}</div>
                     <div id="limites-tab" class="tab-content ${firstVisibleTab === 'limites' ? 'active' : ''}">${getLimitesTabHTML()}</div>
                     ${profile.role === 'Master' ? `<div id="cadastro-tab" class="tab-content ${firstVisibleTab === 'cadastro' ? 'active' : ''}">${getAdminHTML()}</div>` : ''}
@@ -823,8 +1003,96 @@
         }
         
         // --- TEMPLATES HTML DAS ABAS E MODAIS ---
-        function getSulcadorTabHTML() {
-            return `<div class="flex justify-between items-center mb-8 border-b pb-4"><h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real</h2><div class="flex items-center space-x-2"><label for="equipment-select-sulcador" class="text-sm font-medium">Equipamento:</label><select id="equipment-select-sulcador" class="rounded-md border-gray-300 shadow-sm"></select></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10"><div class="metric-card border-l-4 border-emerald-500"><p class="data-label">Conexão ESP32</p><div id="esp32-status-skeleton" class="mt-2 h-7 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-xl hidden" id="esp32-status-value">N/A</p></div><div class="metric-card border-l-4 border-indigo-500"><p class="data-label">Última Profundidade</p><div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p></div><div class="metric-card border-l-4 border-purple-500"><p class="data-label">Média Últimas Leituras</p><div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p></div><div class="metric-card border-l-4 border-teal-500"><p class="data-label">Percentual Produtivo (Amostra)</p><div id="productive-percent-skeleton" class="mt-1 h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div><p class="data-value text-teal-700 hidden" id="productive-percent">0.0%</p></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div id="current-status-card" class="metric-card lg:col-span-1 border-4 border-gray-500 p-8"><p class="data-label text-xl mb-2">Status Atual</p><p class="text-3xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando Dados</p><p class="text-sm text-gray-500 mt-4">Baseado na Última Profundidade e Limites Firestore.</p></div><div class="metric-card lg:col-span-2"><h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><p class="font-bold text-gray-800">Produtivo (Min/Max):</p><p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p></div><div><p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p><p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p></div></div></div></div><div class="mt-12"><h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2><div class="bg-white p-4 rounded-xl shadow-xl"><canvas id="depth-chart"></canvas></div></div><div class="mt-12"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2></div><div class="overflow-x-auto rounded-lg shadow-xl"><table class="min-w-full divide-y divide-gray-200"><thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead><tbody id="readings-history" class="bg-white divide-y divide-gray-200"><tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr></tbody></table></div></div>`;
+        function getImplementosTabHTML() {
+            return `
+            <div class="flex justify-between items-center mb-8 border-b pb-4">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real</h2>
+                    <div id="connection-status-badge" class="hidden items-center gap-2 px-3 py-1 text-sm font-bold text-white bg-gray-400 rounded-full">
+                        <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>
+                        <span id="connection-status-text">Aguardando</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <label for="equipment-select-sulcador" class="text-sm font-medium">Equipamento:</label>
+                    <select id="equipment-select-sulcador" class="rounded-md border-gray-300 shadow-sm"></select>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                <div id="last-depth-card" class="metric-card animated-border h-52 border-l-4 border-indigo-500">
+                    <div class="card-content-wrapper h-full flex flex-col justify-center">
+                        <p class="data-label">Última Profundidade</p>
+                        <div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div>
+                        <p class="data-value text-indigo-700 hidden" id="last-depth">0.00 cm</p>
+                    </div>
+                </div>
+                
+                <div id="avg-depth-card" class="metric-card animated-border h-52 border-l-4 border-purple-500">
+                    <div class="card-content-wrapper h-full flex flex-col justify-center">
+                        <p class="data-label">Prof. Operação Média</p>
+                        <div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div>
+                        <p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p>
+                    </div>
+                </div>
+
+                <div id="productive-percent-card" class="metric-card animated-border h-52 border-l-4 border-teal-500">
+                    <div class="card-content-wrapper h-full flex flex-col justify-center">
+                        <p class="data-label">Percentual Produtivo</p>
+                        <div class="relative mx-auto mt-2" style="width: 120px; height: 120px;">
+                            <canvas id="productive-chart"></canvas>
+                            <div id="productive-percent-text" class="absolute inset-0 flex items-center justify-center text-3xl font-extrabold text-teal-700">
+                                <div id="productive-percent-skeleton" class="h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div>
+                                <span class="hidden">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="current-status-card" class="metric-card animated-border h-52 border-l-4">
+                    <div class="card-content-wrapper h-full flex flex-col justify-center text-center">
+                        <p class="data-label text-xl mb-2">Status Atual</p>
+                        <p class="text-4xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-10">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Gráfico de Profundidade (Últimas Leituras)</h2>
+                <div class="bg-white p-4 rounded-xl shadow-xl">
+                    <canvas id="depth-chart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 gap-6 mb-10">
+                <div class="metric-card">
+                    <h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <p class="font-bold text-gray-800">Produtivo (Min/Max):</p>
+                            <p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p>
+                        </div>
+                        <div>
+                            <p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p>
+                            <p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2>
+                </div>
+                <div class="overflow-x-auto rounded-lg shadow-xl">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead><tr class="table-header"><th scope="col" class="px-6 py-3 text-left">Timestamp</th><th scope="col" class="px-6 py-3 text-left">Prof. Média (cm)</th><th scope="col" class="px-6 py-3 text-left">Status Serviço</th><th scope="col" class="px-6 py-3 text-left">Conexão</th></tr></thead>
+                        <tbody id="readings-history" class="bg-white divide-y divide-gray-200">
+                            <tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando conexão com o Firestore...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
         }
 
         function getFertirrigacaoTabHTML() {
@@ -863,11 +1131,11 @@
                     </div>
                     <div id="adicionar-content" class="admin-content hidden">
                          <form id="add-user-form" class="mb-10 p-6 border rounded-lg"><h3 class="text-lg font-semibold text-purple-700 mb-4">Adicionar Novo Usuário</h3><div class="space-y-4">
-                            <input name="new-user-name" type="text" placeholder="Nome do Usuário" required class="w-full p-2 border rounded-md">
-                            <input name="new-user-id" type="text" placeholder="ID do Usuário (Opcional)" class="w-full p-2 border rounded-md">
-                            <input name="new-user-email" type="email" placeholder="E-mail do novo usuário" required class="w-full p-2 border rounded-md">
-                            <input name="new-user-password" type="password" placeholder="Senha (mínimo 6 caracteres)" required class="w-full p-2 border rounded-md">
-                            <button type="submit" class="w-full py-2 rounded-md shadow-lg text-white bg-purple-600 hover:bg-purple-700">Criar Usuário</button>
+                             <input name="new-user-name" type="text" placeholder="Nome do Usuário" required class="w-full p-2 border rounded-md">
+                             <input name="new-user-id" type="text" placeholder="ID do Usuário (Opcional)" class="w-full p-2 border rounded-md">
+                             <input name="new-user-email" type="email" placeholder="E-mail do novo usuário" required class="w-full p-2 border rounded-md">
+                             <input name="new-user-password" type="password" placeholder="Senha (mínimo 6 caracteres)" required class="w-full p-2 border rounded-md">
+                             <button type="submit" class="w-full py-2 rounded-md shadow-lg text-white bg-purple-600 hover:bg-purple-700">Criar Usuário</button>
                          </div></form>
                     </div>
                 </div>`;
@@ -896,10 +1164,10 @@
                         <div id="permissions-div" class="${isMaster ? 'hidden' : ''} mb-6">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Permissões de Aba</label>
                             <div class="flex flex-col sm:flex-row gap-4">
-                                <label><input type="checkbox" name="permissions" value="sulcador" ${user.permissions?.includes('sulcador') ? 'checked' : ''}> Sulcador</label>
+                                <label><input type="checkbox" name="permissions" value="implementos" ${user.permissions?.includes('implementos') ? 'checked' : ''}> Implementos</label>
                                 <label><input type="checkbox" name="permissions" value="fertirrigacao" ${user.permissions?.includes('fertirrigacao') ? 'checked' : ''}> Fertirrigação</label>
                                 <label><input type="checkbox" name="permissions" value="limites" ${user.permissions?.includes('limites') ? 'checked' : ''}> Limites</label>
-                                <label class="text-gray-500" title="Acesso ao painel de administração é exclusivo para o nível Master."><input type="checkbox" name="permissions" value="cadastro" ${user.permissions?.includes('cadastro') ? 'checked' : ''}> Cadastro (Risco)</label>
+                                <label class="text-gray-500" title="Acesso ao painel de administração é exclusivo para o nível Master."><input type="checkbox" name="permissions" value="cadastro" ${user.permissions?.includes('cadastro') ? 'checked' : ''} disabled> Cadastro</label>
                             </div>
                         </div>
                         <div class="flex justify-end gap-4">
@@ -914,4 +1182,3 @@
     </script>
 </body>
 </html>
-
