@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v6.3</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v6.8</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -66,7 +66,6 @@
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
 
-        /* --- CLASSES PARA ANIMAÇÃO --- */
         @property --angle {
           syntax: '<angle>';
           initial-value: 0deg;
@@ -147,7 +146,7 @@
         };
         const FIRESTORE_ROOT_PREFIX = 'artifacts/monitoramento-esp32-2551e/public/data';
         const FIRESTORE_USERS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/users`;
-        const FIREBASE_LIMITS_PATH = `${FIRESTORE_ROOT_PREFIX}/operational_limits/EQP_USINA_01`;
+        const FIRESTORE_LIMITS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/operational_limits`;
         const FIRESTORE_READINGS_COLLECTION_PATH = `${FIRESTORE_ROOT_PREFIX}/leituras_esp32`;
 
         let app, auth, db;
@@ -158,6 +157,7 @@
         let currentLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0 };
         const CONNECTION_TIMEOUT_MS = 5 * 60 * 1000;
         
+        let currentEquipmentId = null; 
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
@@ -184,6 +184,325 @@
             } catch (error) { console.error("Erro fatal na inicialização:", error); }
         }
         
+        // ====================================================================
+        // FUNÇÃO CORRIGIDA
+        // ====================================================================
+        function initializeDashboard() {
+            document.getElementById('logout-button')?.addEventListener('click', () => {
+                unsubscribeLimits();
+                unsubscribeReadings();
+                if (depthChart) { depthChart.destroy(); depthChart = null; }
+                if (productiveChart) { productiveChart.destroy(); productiveChart = null; }
+                signOut(auth);
+            });
+            document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
+            setupTabNavigation();
+            
+            populateAndSetupEquipmentSelectors();
+
+            // CORREÇÃO APLICADA AQUI:
+            // A condição agora inclui a verificação 'currentUserProfile.role === 'Master''
+            // para garantir que o Master, que pode ver a aba, também tenha os listeners 
+            // do formulário devidamente anexados.
+            const canManageLimits = currentUserProfile.role === 'Master' || (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites'));
+
+            if (canManageLimits) {
+                document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
+                document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
+            }
+
+            if (currentUserProfile.role === 'Master') {
+                document.getElementById('add-user-form')?.addEventListener('submit', handleAddUser);
+                setupAdminTabs();
+                loadAdminData('pendentes'); 
+            }
+        }
+        // ====================================================================
+        
+        async function populateAndSetupEquipmentSelectors() {
+            const implementosSelect = document.getElementById('equipment-select-implementos');
+            const limitesSelect = document.getElementById('equipment-select-limites');
+            if (!implementosSelect || !limitesSelect) return;
+
+            try {
+                const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH));
+                onSnapshot(q, (snapshot) => {
+                    const previouslySelectedId = currentEquipmentId; 
+                    implementosSelect.innerHTML = ''; 
+                    limitesSelect.innerHTML = ''; 
+
+                    let firstEquipmentId = null;
+                    let idList = [];
+                    if (snapshot.empty) {
+                        const noEquipMsg = '<option value="">Nenhum equipamento cadastrado</option>';
+                        implementosSelect.innerHTML = noEquipMsg;
+                        limitesSelect.innerHTML = noEquipMsg;
+                        loadEquipmentData(null);
+                        return;
+                    }
+
+                    snapshot.forEach(doc => {
+                        const equipmentId = doc.id;
+                        idList.push(equipmentId);
+                        if (!firstEquipmentId) firstEquipmentId = equipmentId;
+                        const optionHTML = `<option value="${equipmentId}">${equipmentId}</option>`;
+                        implementosSelect.innerHTML += optionHTML;
+                        limitesSelect.innerHTML += optionHTML;
+                    });
+                    
+                    let idToSelect = previouslySelectedId && idList.includes(previouslySelectedId)
+                        ? previouslySelectedId
+                        : firstEquipmentId;
+
+                    if (idToSelect) {
+                        implementosSelect.value = idToSelect;
+                        limitesSelect.value = idToSelect;
+                        if (currentEquipmentId !== idToSelect) {
+                            currentEquipmentId = idToSelect;
+                            loadEquipmentData(idToSelect);
+                        }
+                    }
+                });
+
+                const handleSelectionChange = (event) => {
+                    const selectedEquipmentId = event.target.value;
+                    if (selectedEquipmentId) {
+                        currentEquipmentId = selectedEquipmentId;
+                        implementosSelect.value = selectedEquipmentId;
+                        limitesSelect.value = selectedEquipmentId;
+                        loadEquipmentData(selectedEquipmentId);
+                    }
+                };
+
+                implementosSelect.addEventListener('change', handleSelectionChange);
+                limitesSelect.addEventListener('change', handleSelectionChange);
+
+            } catch (error) {
+                console.error("Erro ao carregar equipamentos:", error);
+                showMessage('Erro', 'Não foi possível carregar a lista de equipamentos.', 'error');
+            }
+        }
+
+        async function loadEquipmentData(equipmentId) {
+            unsubscribeLimits();
+            unsubscribeReadings();
+            readingsCache = [];
+            
+            const nameInput = document.getElementById('equipment-name');
+            const macInput = document.getElementById('equipment-mac');
+
+            if (!equipmentId) {
+                if (nameInput) nameInput.value = '';
+                if (macInput) macInput.value = '';
+                updateDashboard([]);
+                updateConfigForm(null);
+                return;
+            };
+
+            const limitsRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, equipmentId);
+            const limitsDoc = await getDoc(limitsRef);
+
+            if (limitsDoc.exists()) {
+                const data = limitsDoc.data();
+                if (nameInput) nameInput.value = equipmentId;
+                if (macInput) macInput.value = data.mac || '';
+                
+                listenToLimits(equipmentId);
+                listenToReadings(equipmentId);
+            }
+        }
+        
+        async function handleVincularEquipamento(e) {
+            e.preventDefault();
+            const form = e.target;
+            const newMac = form.elements['new-mac'].value.trim().toUpperCase();
+            const newName = form.elements['new-equipment-name'].value.trim();
+
+            if (!newMac || !newName) {
+                return showMessage('Erro', 'MAC Address e Nome do Equipamento são obrigatórios.', 'error');
+            }
+            
+            const macQuery = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), where("mac", "==", newMac));
+            const macSnapshot = await getDocs(macQuery);
+            if (!macSnapshot.empty) {
+                return showMessage('Erro de Duplicidade', `O MAC Address ${newMac} já está vinculado a outro equipamento.`, 'error');
+            }
+
+            const nameRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, newName);
+            const nameDoc = await getDoc(nameRef);
+            if (nameDoc.exists()) {
+                 return showMessage('Erro de Duplicidade', `O nome de equipamento "${newName}" já existe. Escolha outro.`, 'error');
+            }
+
+            try {
+                const defaultLimits = {
+                    mac: newMac,
+                    equipamento: newName,
+                    produtivoMin: 10.0,
+                    produtivoMax: 50.0,
+                    paradoCentro: 70.0,
+                    paradoTolerancia: 5.0,
+                    createdAt: serverTimestamp()
+                };
+                await setDoc(nameRef, defaultLimits);
+                showMessage('Sucesso!', `Equipamento "${newName}" vinculado com sucesso.`, 'success');
+                form.reset();
+            } catch (error) {
+                console.error("Erro ao vincular equipamento:", error);
+                showMessage('Erro', 'Não foi possível criar o novo vínculo.', 'error');
+            }
+        }
+
+        async function handleSaveLimits(e) {
+            e.preventDefault();
+            const originalEquipmentId = currentEquipmentId;
+
+            if (!originalEquipmentId) {
+                return showMessage('Atenção', 'Selecione um equipamento na lista antes de salvar.', 'warning');
+            }
+
+            const form = e.target;
+            const newName = form.elements['equipment-name'].value.trim();
+
+            if (!newName) {
+                return showMessage('Erro', 'O nome do equipamento não pode ficar em branco.', 'error');
+            }
+            
+            const newLimitsData = {
+                produtivoMin: parseFloat(form.elements['input-produtivo-min'].value),
+                produtivoMax: parseFloat(form.elements['input-produtivo-max'].value),
+                paradoCentro: parseFloat(form.elements['input-parado-centro'].value),
+                paradoTolerancia: parseFloat(form.elements['input-parado-tolerancia'].value),
+                updatedAt: serverTimestamp()
+            };
+            
+            if (isNaN(newLimitsData.produtivoMin) || isNaN(newLimitsData.produtivoMax) || isNaN(newLimitsData.paradoCentro) || isNaN(newLimitsData.paradoTolerancia)) {
+                 return showMessage('Erro de Validação', 'Todos os campos de limites devem ser números válidos.', 'error');
+            }
+            if (newLimitsData.produtivoMin >= newLimitsData.produtivoMax) {
+                return showMessage('Erro de Validação', 'A Profundidade Mínima deve ser menor que a Máxima.', 'warning');
+            }
+
+            // Se o nome não mudou, apenas atualiza os limites
+            if (newName === originalEquipmentId) {
+                const limitsRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
+                try {
+                    await updateDoc(limitsRef, newLimitsData);
+                    showMessage('Sucesso!', `Limites para "${originalEquipmentId}" foram atualizados.`, 'success');
+                } catch (error) {
+                    console.error("Erro ao salvar limites:", error);
+                    showMessage('Erro', 'Não foi possível salvar as configurações. Verifique suas permissões.', 'error');
+                }
+            } 
+            // Se o nome mudou, executa a lógica de renomeação
+            else {
+                const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O histórico de leituras antigo NÃO será migrado para o novo nome. Deseja continuar?`;
+                
+                showConfirmationModal(confirmMessage, async () => {
+                    try {
+                        // Verifica se o novo nome já existe
+                        const newDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, newName);
+                        const newDocSnap = await getDoc(newDocRef);
+                        if (newDocSnap.exists()) {
+                            showMessage('Erro', `O nome de equipamento "${newName}" já existe.`, 'error');
+                            document.getElementById('equipment-name').value = originalEquipmentId; // Reverte
+                            return;
+                        }
+
+                        // Pega os dados do documento antigo
+                        const oldDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
+                        const oldDocSnap = await getDoc(oldDocRef);
+                        if (!oldDocSnap.exists()) {
+                            showMessage('Erro', `O equipamento original "${originalEquipmentId}" não foi encontrado.`, 'error');
+                            return;
+                        }
+
+                        const dataToMove = oldDocSnap.data();
+                        
+                        // Combina dados antigos e novos
+                        const finalData = { 
+                            ...dataToMove, 
+                            ...newLimitsData, 
+                            equipamento: newName // Atualiza o campo interno com o novo nome
+                        };
+
+                        // Cria o novo documento e apaga o antigo
+                        await setDoc(newDocRef, finalData);
+                        await deleteDoc(oldDocRef);
+                        
+                        showMessage('Sucesso!', `Equipamento renomeado para "${newName}".`, 'success');
+                        
+                        // Atualiza o estado global para que a UI selecione o novo nome
+                        currentEquipmentId = newName;
+
+                    } catch (error) {
+                        console.error("Erro ao renomear equipamento:", error);
+                        let userMessage = 'Ocorreu um erro durante a renomeação.';
+                        if (error.code === 'permission-denied') {
+                           userMessage = 'Erro de permissão. Verifique as regras de segurança do Firestore para permitir a criação e exclusão de documentos.';
+                        }
+                        showMessage('Erro', userMessage, 'error');
+                    }
+                });
+            }
+        }
+        
+        function listenToLimits(equipmentId) {
+            if (!db || !equipmentId) {
+                currentLimits = {}; 
+                updateConfigForm(null); 
+                return;
+            }
+            const limitsDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, equipmentId);
+            
+            unsubscribeLimits = onSnapshot(limitsDocRef, (docSnapshot) => {
+                if (docSnapshot.exists()) {
+                    const data = docSnapshot.data();
+                    currentLimits = {
+                        produtivoMin: parseFloat(data.produtivoMin) || 10.0,
+                        produtivoMax: parseFloat(data.produtivoMax) || 50.0,
+                        paradoCentro: parseFloat(data.paradoCentro) || 70.0,
+                        paradoTolerancia: parseFloat(data.paradoTolerancia) || 5.0,
+                    };
+                    updateConfigForm(currentLimits);
+                } else {
+                    currentLimits = {};
+                    updateConfigForm(null);
+                }
+                updateDashboard(readingsCache);
+            });
+        }
+        
+        function listenToReadings(equipmentId) {
+            if (!db || !equipmentId) {
+                readingsCache = []; 
+                updateDashboard([]);
+                const historyBody = document.getElementById('readings-history');
+                if(historyBody) historyBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Selecione um equipamento para ver as leituras.</td></tr>';
+                return;
+            }
+            const readingsQuery = query(collection(db, FIRESTORE_READINGS_COLLECTION_PATH), where("equipamento", "==", equipmentId), orderBy('timestamp', 'desc'), limit(50));
+            
+            unsubscribeReadings = onSnapshot(readingsQuery, (snapshot) => {
+                 const historyBody = document.getElementById('readings-history');
+                if (snapshot.empty) {
+                    readingsCache = [];
+                    if(historyBody) historyBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada para ${equipmentId}.</td></tr>`;
+                } else {
+                    readingsCache = snapshot.docs.map(doc => {
+                        const data = doc.data();
+                        const statusServico = calculateStatus(data.prof_media, currentLimits);
+                        return { ...data, statusServico };
+                    });
+                }
+                updateDashboard(readingsCache);
+            }, (error) => {
+                console.error("Erro ao escutar leituras:", error);
+                readingsCache = [];
+                updateDashboard([]);
+            });
+        }
+
         function setupAuthListeners() {
             const loginScreen = document.getElementById('login-screen');
             const savedEmail = localStorage.getItem('savedUserEmail');
@@ -326,31 +645,6 @@
             }, 2500);
         }
 
-        function initializeDashboard() {
-            document.getElementById('logout-button')?.addEventListener('click', () => {
-                unsubscribeLimits();
-                unsubscribeReadings();
-                if (depthChart) { depthChart.destroy(); depthChart = null; }
-                if (productiveChart) { productiveChart.destroy(); productiveChart = null; }
-                signOut(auth);
-            });
-            document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
-            setupTabNavigation();
-            
-            if (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites')) {
-                 document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
-            }
-
-            if (currentUserProfile.role === 'Master') {
-                document.getElementById('add-user-form')?.addEventListener('submit', handleAddUser);
-                setupAdminTabs();
-                loadAdminData('pendentes'); 
-            }
-            
-            listenToLimits();
-            listenToReadings();
-        }
-        
         function setupTabNavigation() {
             const tabsContainer = document.getElementById('tabs-container');
             tabsContainer?.addEventListener('click', e => {
@@ -399,7 +693,7 @@
         }
 
         function calculateStatus(depth, limits) {
-            if (!limits) return 'Sem Limites';
+            if (!limits || Object.keys(limits).length === 0) return 'Sem Limites';
             if (depth < 0) return 'ERRO SENSOR';
             if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) return 'Manutenção';
             if (depth >= limits.produtivoMin && depth <= limits.produtivoMax) return 'Produtivo';
@@ -441,63 +735,22 @@
         }
 
         function updateConfigForm(limits) {
-            const prodMin = document.getElementById('input-produtivo-min');
-            if (prodMin) {
-                prodMin.value = limits.produtivoMin;
-                document.getElementById('input-produtivo-max').value = limits.produtivoMax;
-                document.getElementById('input-parado-centro').value = limits.paradoCentro;
-                document.getElementById('input-parado-tolerancia').value = limits.paradoTolerancia;
-                document.getElementById('limit-produtivo').innerHTML = `${limits.produtivoMin.toFixed(1)} / ${limits.produtivoMax.toFixed(1)} cm`;
-                document.getElementById('limit-parado').innerHTML = `${limits.paradoCentro.toFixed(1)} &pm; ${limits.paradoTolerancia.toFixed(1)} cm`;
-            }
-        }
-        
-        function listenToLimits() {
-            if (!db) return;
+            const form = document.getElementById('limits-form');
+            if (!form) return;
             
-            const limitsDocRef = doc(db, FIREBASE_LIMITS_PATH);
-            const defaultLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0, equipamento: 'EQP_USINA_01', createdAt: serverTimestamp() };
+            form.elements['input-produtivo-min'].value = limits ? limits.produtivoMin : '';
+            form.elements['input-produtivo-max'].value = limits ? limits.produtivoMax : '';
+            form.elements['input-parado-centro'].value = limits ? limits.paradoCentro : '';
+            form.elements['input-parado-tolerancia'].value = limits ? limits.paradoTolerancia : '';
 
-            unsubscribeLimits = onSnapshot(limitsDocRef, (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    const data = docSnapshot.data();
-                    currentLimits = {
-                        produtivoMin: parseFloat(data.produtivoMin) || defaultLimits.produtivoMin,
-                        produtivoMax: parseFloat(data.produtivoMax) || defaultLimits.produtivoMax,
-                        paradoCentro: parseFloat(data.paradoCentro) || defaultLimits.paradoCentro,
-                        paradoTolerancia: parseFloat(data.paradoTolerancia) || defaultLimits.paradoTolerancia,
-                    };
-                    updateConfigForm(currentLimits);
-                    updateDashboard(readingsCache);
-                } else {
-                    setDoc(limitsDocRef, defaultLimits, { merge: true }).catch(error => console.error("Falha ao criar limites:", error));
-                }
-            }, (error) => {
-                console.error("Erro no listener de limites:", error);
-            });
-        }
-        
-        function listenToReadings() {
-            if (!db) return;
-            const readingsColRef = collection(db, FIRESTORE_READINGS_COLLECTION_PATH);
-            const allReadingsQuery = query(readingsColRef, orderBy('timestamp', 'desc'), limit(50));
-            
-            unsubscribeReadings = onSnapshot(allReadingsQuery, (snapshot) => {
-                const historyBody = document.getElementById('readings-history');
-                if (snapshot.size > 0) {
-                    readingsCache = snapshot.docs.map(doc => {
-                        const data = doc.data();
-                        const statusServico = calculateStatus(data.prof_media, currentLimits);
-                        return { ...data, statusServico: statusServico };
-                    });
-                    updateDashboard(readingsCache);
-                } else {
-                    if(historyBody) historyBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada.</td></tr>';
-                    updateDashboard([]);
-                }
-            }, (error) => {
-                console.error("Erro no listener de leituras:", error);
-            });
+            const limitProdutivo = document.getElementById('limit-produtivo');
+            const limitParado = document.getElementById('limit-parado');
+            if (limitProdutivo) {
+                limitProdutivo.innerHTML = limits ? `${(limits.produtivoMin || 0).toFixed(1)} / ${(limits.produtivoMax || 0).toFixed(1)} cm` : '-- / -- cm';
+            }
+            if(limitParado) {
+                 limitParado.innerHTML = limits ? `${(limits.paradoCentro || 0).toFixed(1)} &pm; ${(limits.paradoTolerancia || 0).toFixed(1)} cm` : '-- &pm; -- cm';
+            }
         }
         
         function toggleSkeletons(showData = true) {
@@ -520,21 +773,26 @@
         
         function updateDashboard(readings) {
             if(!document.getElementById('depth-chart')) return;
-            toggleSkeletons(readings.length > 0);
+            const hasReadings = readings && readings.length > 0;
+            toggleSkeletons(hasReadings);
             
             document.getElementById('last-depth-card')?.style.setProperty('--animation-color', '#6366f1');
             document.getElementById('avg-depth-card')?.style.setProperty('--animation-color', '#a855f7');
             document.getElementById('productive-percent-card')?.style.setProperty('--animation-color', '#14b8a6');
 
-            const avgRawDepth = readings.length > 0 ? readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length : 0;
+            const avgRawDepth = hasReadings ? readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length : 0;
             const hMesa = currentLimits.paradoCentro || 0;
             const avgOperationDepth = hMesa - avgRawDepth;
+            
+            const badge = document.getElementById('connection-status-badge');
+            const badgeText = document.getElementById('connection-status-text');
 
-            if (readings.length === 0) {
+            if (!hasReadings) {
                 renderStatus('Aguardando', 0);
                 document.getElementById('avg-depth').textContent = `0.0 cm`;
                 updateProductiveChart(0, 0);
                 updateChart([], avgOperationDepth);
+                if(badge) badge.classList.add('hidden');
                 return;
             }
 
@@ -543,8 +801,6 @@
             const latestTimestamp = latestReading.timestamp.toDate();
             const isConnected = (Date.now() - latestTimestamp.getTime()) < CONNECTION_TIMEOUT_MS;
 
-            const badge = document.getElementById('connection-status-badge');
-            const badgeText = document.getElementById('connection-status-text');
             badge.classList.remove('hidden', 'bg-gray-400', 'bg-emerald-500', 'bg-red-500');
             badge.classList.add('flex');
             if (isConnected) {
@@ -634,7 +890,7 @@
                     {
                         label: 'Profundidade (Sensor)',
                         data: reversedReadings.map(r => r.prof_media || 0),
-                        borderColor: 'rgb(59, 130, 246)', // blue-500
+                        borderColor: 'rgb(59, 130, 246)',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         fill: true,
                         tension: 0.3,
@@ -642,7 +898,7 @@
                     {
                         label: 'Prof. Operação Média (Amostra)',
                         data: reversedReadings.map(() => avgOperationDepth),
-                        borderColor: 'rgb(168, 85, 247)', // purple-500
+                        borderColor: 'rgb(168, 85, 247)',
                         backgroundColor: 'rgba(168, 85, 247, 0.1)',
                         fill: false,
                         borderDash: [5, 5],
@@ -653,7 +909,7 @@
 
             if (depthChart) {
                 depthChart.data = chartData;
-                depthChart.options.scales.y.max = currentLimits.paradoCentro;
+                depthChart.options.scales.y.max = currentLimits.paradoCentro || 100;
                 depthChart.update();
             } else {
                 depthChart = new Chart(ctx, {
@@ -664,39 +920,15 @@
                             x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'dd/MM/yy HH:mm:ss' } },
                             y: { 
                                 beginAtZero: true, 
-                                max: currentLimits.paradoCentro,
+                                max: currentLimits.paradoCentro || 100,
                                 title: { display: true, text: 'Profundidade (cm)' } 
                             }
                         },
                         plugins: {
-                            legend: {
-                                display: true
-                            }
+                            legend: { display: true }
                         }
                     }
                 });
-            }
-        }
-        
-        async function handleSaveLimits(e) {
-            e.preventDefault();
-            if (!db) return showMessage('Erro de Conexão', 'O Firebase não está inicializado.', 'error');
-            const newLimits = {
-                produtivoMin: parseFloat(document.getElementById('input-produtivo-min').value),
-                produtivoMax: parseFloat(document.getElementById('input-produtivo-max').value),
-                paradoCentro: parseFloat(document.getElementById('input-parado-centro').value),
-                paradoTolerancia: parseFloat(document.getElementById('input-parado-tolerancia').value),
-                updatedAt: serverTimestamp()
-            };
-            if (newLimits.produtivoMin >= newLimits.produtivoMax) {
-                return showMessage('Erro de Validação', 'A Prof. Mínima deve ser menor que a Máxima.', 'warning');
-            }
-            try {
-                await setDoc(doc(db, FIREBASE_LIMITS_PATH), newLimits, { merge: true });
-                showMessage('Sucesso', 'Limites operacionais salvos no Firestore!', 'success');
-            } catch (error) {
-                console.error("Erro ao salvar limites:", error);
-                showMessage('Erro de Permissão', 'Não foi possível salvar os limites. Verifique as regras do Firestore.', 'error');
             }
         }
         
@@ -1002,7 +1234,6 @@
             `;
         }
         
-        // --- TEMPLATES HTML DAS ABAS E MODAIS ---
         function getImplementosTabHTML() {
             return `
             <div class="flex justify-between items-center mb-8 border-b pb-4">
@@ -1014,13 +1245,13 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
-                    <label for="equipment-select-sulcador" class="text-sm font-medium">Equipamento:</label>
-                    <select id="equipment-select-sulcador" class="rounded-md border-gray-300 shadow-sm"></select>
+                    <label for="equipment-select-implementos" class="text-sm font-medium">Equipamento:</label>
+                    <select id="equipment-select-implementos" class="rounded-md border-gray-300 shadow-sm"></select>
                 </div>
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                <div id="last-depth-card" class="metric-card animated-border h-52 border-l-4 border-indigo-500">
+                <div id="last-depth-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center">
                         <p class="data-label">Última Profundidade</p>
                         <div id="last-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div>
@@ -1028,7 +1259,7 @@
                     </div>
                 </div>
                 
-                <div id="avg-depth-card" class="metric-card animated-border h-52 border-l-4 border-purple-500">
+                <div id="avg-depth-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center">
                         <p class="data-label">Prof. Operação Média</p>
                         <div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div>
@@ -1036,7 +1267,7 @@
                     </div>
                 </div>
 
-                <div id="productive-percent-card" class="metric-card animated-border h-52 border-l-4 border-teal-500">
+                <div id="productive-percent-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center">
                         <p class="data-label">Percentual Produtivo</p>
                         <div class="relative mx-auto mt-2" style="width: 120px; height: 120px;">
@@ -1049,7 +1280,7 @@
                     </div>
                 </div>
 
-                <div id="current-status-card" class="metric-card animated-border h-52 border-l-4">
+                <div id="current-status-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center text-center">
                         <p class="data-label text-xl mb-2">Status Atual</p>
                         <p class="text-4xl font-extrabold" id="status-value-text" style="line-height: 1.2;">Aguardando</p>
@@ -1062,21 +1293,10 @@
                 <div class="bg-white p-4 rounded-xl shadow-xl">
                     <canvas id="depth-chart" style="height: 300px;"></canvas>
                 </div>
-            </div>
-            
-            <div class="grid grid-cols-1 gap-6 mb-10">
-                <div class="metric-card">
-                    <h3 class="data-label text-lg mb-4 text-emerald-700">Limites Atuais de Operação</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <p class="font-bold text-gray-800">Produtivo (Min/Max):</p>
-                            <p id="limit-produtivo" class="text-lg text-emerald-600 font-semibold">-- / -- cm</p>
-                        </div>
-                        <div>
-                            <p class="font-bold text-gray-800">Manutenção (Centro &pm; Tolerância):</p>
-                            <p id="limit-parado" class="text-lg text-red-600 font-semibold">-- &pm; -- cm</p>
-                        </div>
-                    </div>
+                <div class="text-center text-xs text-gray-500 mt-2">
+                    <span class="font-semibold">Limites Atuais:</span>
+                    <span class="text-emerald-600 mx-2">Produtivo: <strong id="limit-produtivo">-- / -- cm</strong></span> | 
+                    <span class="text-red-600 ml-2">Manutenção: <strong id="limit-parado">-- &pm; -- cm</strong></span>
                 </div>
             </div>
             
@@ -1100,15 +1320,50 @@
         }
 
         function getLimitesTabHTML() {
-            return `<div class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
-                <div class="flex justify-between items-center mb-6"><h2 class="text-3xl font-bold text-gray-900">Configuração de Limites</h2><div class="flex items-center space-x-2"><label for="equipment-select-limites" class="text-sm font-medium">Equipamento:</label><select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select></div></div>
-                <form id="limits-form">
-                    <div class="mb-6"><label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento</label><input type="text" id="equipment-name" name="equipment-name" class="mt-1 block w-full rounded-md" required></div>
-                    <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                    <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                    <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Limites no Firestore</button>
-                </form>
-            </div>`;
+            return `
+            <div class="max-w-2xl mx-auto space-y-10">
+                <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-3xl font-bold text-gray-900">Configurar Limites</h2>
+                        <div class="flex items-center space-x-2">
+                            <label for="equipment-select-limites" class="text-sm font-medium">Equipamento:</label>
+                            <select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select>
+                        </div>
+                    </div>
+                     <p class="text-sm text-gray-500 mb-6">Selecione um equipamento para editar seu nome e limites. O MAC Address é fixo e não pode ser alterado.</p>
+
+                    <form id="limits-form">
+                        <div class="mb-4">
+                            <label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento (ID)</label>
+                            <input type="text" id="equipment-name" name="equipment-name" class="mt-1 block w-full rounded-md" required>
+                        </div>
+                        <div class="mb-6">
+                             <label for="equipment-mac" class="block text-sm font-medium text-gray-700">MAC Address (Fixo)</label>
+                            <input type="text" id="equipment-mac" class="mt-1 block w-full rounded-md bg-gray-100 cursor-not-allowed font-mono" readonly>
+                        </div>
+
+                        <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                        <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Alterações</button>
+                    </form>
+                </div>
+                
+                <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
+                     <h2 class="text-3xl font-bold text-gray-900 mb-6">Vincular Novo Equipamento</h2>
+                     <form id="new-equipment-form" class="space-y-4">
+                         <div>
+                             <label for="new-mac" class="block text-sm font-medium text-gray-700">MAC Address do ESP32</label>
+                             <input type="text" id="new-mac" name="new-mac" placeholder="AA:BB:CC:11:22:33" class="mt-1 block w-full rounded-md font-mono" required>
+                         </div>
+                         <div>
+                             <label for="new-equipment-name" class="block text-sm font-medium text-gray-700">Nome do Novo Equipamento (ID)</label>
+                             <input type="text" id="new-equipment-name" name="new-equipment-name" placeholder="Ex: Sulcador-02" class="mt-1 block w-full rounded-md" required>
+                         </div>
+                         <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-emerald-600 hover:bg-emerald-700">Vincular Equipamento</button>
+                     </form>
+                </div>
+            </div>
+            `;
         }
 
         function getAdminHTML() {
