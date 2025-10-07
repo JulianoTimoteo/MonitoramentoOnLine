@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v6.8</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -66,6 +66,13 @@
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
 
+        /* Estilos para sub-abas de Fertirrigação */
+        .fert-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 9999px; transition: all 0.2s; border: 1px solid #d1d5db; color: #4b5563; }
+        .fert-sub-tab.active { background-color: var(--color-fertirrigacao); color: white; border-color: var(--color-fertirrigacao); }
+        .fert-sub-content { display: none; animation: fadeIn 0.5s; }
+        .fert-sub-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
         @property --angle {
           syntax: '<angle>';
           initial-value: 0deg;
@@ -73,55 +80,23 @@
         }
 
         @keyframes rotate {
-          to {
-            --angle: 360deg;
-          }
+          to { --angle: 360deg; }
         }
 
         .animated-border {
-            --animation-color: transparent;
-            position: relative;
-            overflow: hidden;
-            border-radius: 0.75rem;
+            --animation-color: transparent; position: relative; overflow: hidden; border-radius: 0.75rem;
         }
-
         .animated-border::before {
-            content: '';
-            position: absolute;
-            z-index: 0;
-            inset: -3px;
-            border-radius: inherit;
-            background: conic-gradient(
-                from var(--angle),
-                var(--animation-color),
-                transparent 30%,
-                transparent
-            );
+            content: ''; position: absolute; z-index: 0; inset: -3px; border-radius: inherit;
+            background: conic-gradient(from var(--angle), var(--animation-color), transparent 30%, transparent);
             animation: rotate 8s linear infinite;
         }
-
         .animated-border::after {
-            content: '';
-            position: absolute;
-            z-index: 1;
-            inset: 2px;
-            border-radius: 0.6rem; 
-            background: white;
+            content: ''; position: absolute; z-index: 1; inset: 2px; border-radius: 0.6rem; background: white;
         }
-        
-        .card-content-wrapper {
-            position: relative;
-            z-index: 2;
-            padding: 1.5rem;
-        }
-
-        .login-card-border-top {
-            border-top: 8px solid var(--animation-color, var(--color-primary));
-            padding: 0;
-        }
-        .login-card-border-top .card-content-wrapper {
-            padding: 2rem;
-        }
+        .card-content-wrapper { position: relative; z-index: 2; padding: 1.5rem; }
+        .login-card-border-top { border-top: 8px solid var(--animation-color, var(--color-primary)); padding: 0; }
+        .login-card-border-top .card-content-wrapper { padding: 2rem; }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -161,6 +136,15 @@
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
+        // --- VARIÁVEIS GLOBAIS PARA FERTIRRIGAÇÃO ---
+        let lagoasChart = null;
+        let fertirrigacaoInterval = null;
+        let fertirrigacaoSubTabInterval = null;
+        let lagoonsData = {};
+        let totalVolumeIn = 0;
+        let totalVolumeOut = 0;
+        // -------------------------------------------
+
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('login-screen').innerHTML = getLoginHTML();
             document.getElementById('splashScreen').innerHTML = getSplashHTML();
@@ -184,15 +168,14 @@
             } catch (error) { console.error("Erro fatal na inicialização:", error); }
         }
         
-        // ====================================================================
-        // FUNÇÃO CORRIGIDA
-        // ====================================================================
         function initializeDashboard() {
             document.getElementById('logout-button')?.addEventListener('click', () => {
                 unsubscribeLimits();
                 unsubscribeReadings();
+                controlFertirrigacaoSimulation(false);
                 if (depthChart) { depthChart.destroy(); depthChart = null; }
                 if (productiveChart) { productiveChart.destroy(); productiveChart = null; }
+                if (lagoasChart) { lagoasChart.destroy(); lagoasChart = null; }
                 signOut(auth);
             });
             document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
@@ -200,10 +183,6 @@
             
             populateAndSetupEquipmentSelectors();
 
-            // CORREÇÃO APLICADA AQUI:
-            // A condição agora inclui a verificação 'currentUserProfile.role === 'Master''
-            // para garantir que o Master, que pode ver a aba, também tenha os listeners 
-            // do formulário devidamente anexados.
             const canManageLimits = currentUserProfile.role === 'Master' || (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites'));
 
             if (canManageLimits) {
@@ -217,7 +196,6 @@
                 loadAdminData('pendentes'); 
             }
         }
-        // ====================================================================
         
         async function populateAndSetupEquipmentSelectors() {
             const implementosSelect = document.getElementById('equipment-select-implementos');
@@ -383,7 +361,6 @@
                 return showMessage('Erro de Validação', 'A Profundidade Mínima deve ser menor que a Máxima.', 'warning');
             }
 
-            // Se o nome não mudou, apenas atualiza os limites
             if (newName === originalEquipmentId) {
                 const limitsRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
                 try {
@@ -394,22 +371,19 @@
                     showMessage('Erro', 'Não foi possível salvar as configurações. Verifique suas permissões.', 'error');
                 }
             } 
-            // Se o nome mudou, executa a lógica de renomeação
             else {
                 const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O histórico de leituras antigo NÃO será migrado para o novo nome. Deseja continuar?`;
                 
                 showConfirmationModal(confirmMessage, async () => {
                     try {
-                        // Verifica se o novo nome já existe
                         const newDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, newName);
                         const newDocSnap = await getDoc(newDocRef);
                         if (newDocSnap.exists()) {
                             showMessage('Erro', `O nome de equipamento "${newName}" já existe.`, 'error');
-                            document.getElementById('equipment-name').value = originalEquipmentId; // Reverte
+                            document.getElementById('equipment-name').value = originalEquipmentId; 
                             return;
                         }
 
-                        // Pega os dados do documento antigo
                         const oldDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
                         const oldDocSnap = await getDoc(oldDocRef);
                         if (!oldDocSnap.exists()) {
@@ -419,27 +393,24 @@
 
                         const dataToMove = oldDocSnap.data();
                         
-                        // Combina dados antigos e novos
                         const finalData = { 
                             ...dataToMove, 
                             ...newLimitsData, 
-                            equipamento: newName // Atualiza o campo interno com o novo nome
+                            equipamento: newName
                         };
 
-                        // Cria o novo documento e apaga o antigo
                         await setDoc(newDocRef, finalData);
                         await deleteDoc(oldDocRef);
                         
                         showMessage('Sucesso!', `Equipamento renomeado para "${newName}".`, 'success');
                         
-                        // Atualiza o estado global para que a UI selecione o novo nome
                         currentEquipmentId = newName;
 
                     } catch (error) {
                         console.error("Erro ao renomear equipamento:", error);
                         let userMessage = 'Ocorreu um erro durante a renomeação.';
                         if (error.code === 'permission-denied') {
-                           userMessage = 'Erro de permissão. Verifique as regras de segurança do Firestore para permitir a criação e exclusão de documentos.';
+                            userMessage = 'Erro de permissão. Verifique as regras de segurança do Firestore para permitir a criação e exclusão de documentos.';
                         }
                         showMessage('Erro', userMessage, 'error');
                     }
@@ -641,6 +612,10 @@
                 setTimeout(() => { 
                     if (splashScreen) splashScreen.classList.remove('active'); 
                     initializeDashboard(); 
+                    const initialActiveTab = document.querySelector('.tab-button.active');
+                    if (initialActiveTab && initialActiveTab.dataset.tab === 'fertirrigacao') {
+                        controlFertirrigacaoSimulation(true);
+                    }
                 }, 1500);
             }, 2500);
         }
@@ -650,6 +625,14 @@
             tabsContainer?.addEventListener('click', e => {
                 if (e.target.matches('.tab-button')) {
                     const tabId = e.target.dataset.tab;
+                    
+                    if (fertirrigacaoInterval) {
+                        controlFertirrigacaoSimulation(false);
+                    }
+                    if (tabId === 'fertirrigacao') {
+                        controlFertirrigacaoSimulation(true);
+                    }
+
                     tabsContainer.className = `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${tabId}`;
                     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
                     e.target.classList.add('active');
@@ -932,6 +915,325 @@
             }
         }
         
+        // ====================================================================
+        // LÓGICA DA ABA FERTIRRIGAÇÃO (SIMULAÇÃO)
+        // ====================================================================
+
+        function initializeLagoonsData() {
+            const lagoonNames = ["Carregamento Usina A", "Carregamento Usina B", "Eucalipto Cheiroso", "Castanha", "Santa Teresinha"];
+            lagoonsData = {};
+            totalVolumeIn = 0;
+            totalVolumeOut = 0;
+            lagoonNames.forEach((name, index) => {
+                const id = index + 1;
+                lagoonsData[id] = {
+                    id: id, name: name,
+                    currentHeight: Math.random() * 2.8,
+                    previousHeight: 0,
+                    flowLastHour: Math.random() * 500,
+                    flowLast24h: Math.random() * 12000,
+                    flowSeason: 1000000 + Math.random() * 500000,
+                };
+                lagoonsData[id].previousHeight = lagoonsData[id].currentHeight;
+            });
+        }
+
+        function simulateDataUpdate() {
+            Object.values(lagoonsData).forEach(lagoa => {
+                lagoa.previousHeight = lagoa.currentHeight;
+                let heightChange = (Math.random() - 0.5) * 0.1;
+                let newHeight = lagoa.currentHeight + heightChange;
+                if (newHeight > 3) newHeight = 3;
+                if (newHeight < 0) newHeight = 0;
+                
+                const oldVolume = calculateVolume(lagoa.currentHeight);
+                lagoa.currentHeight = newHeight;
+                const newVolume = calculateVolume(lagoa.currentHeight);
+                
+                const volumeChange = newVolume - oldVolume;
+                if (volumeChange > 0) {
+                    totalVolumeIn += volumeChange;
+                } else {
+                    totalVolumeOut += Math.abs(volumeChange);
+                }
+
+                lagoa.flowLastHour += (Math.random() - 0.5) * 10;
+                lagoa.flowLast24h += (Math.random() - 0.5) * 50;
+                lagoa.flowSeason += Math.random() * 100;
+            });
+            updateFertirrigacaoUI();
+        }
+
+        function calculateVolume(heightInMeters) {
+            const H_total = 3.0, L_bottom = 35.0, W_bottom = 15.0, L_top = 40.0, W_top = 20.0;
+            if (heightInMeters <= 0) return 0;
+            if (heightInMeters > H_total) heightInMeters = H_total;
+            const A_bottom = L_bottom * W_bottom;
+            const L_h = L_bottom + (heightInMeters / H_total) * (L_top - L_bottom);
+            const W_h = W_bottom + (heightInMeters / H_total) * (W_top - W_bottom);
+            const A_h = L_h * W_h;
+            const volume_m3 = (1/3) * heightInMeters * (A_bottom + A_h + Math.sqrt(A_bottom * A_h));
+            return volume_m3 * 1000;
+        }
+
+        function updateFertirrigacaoUI() {
+            if (!document.getElementById('fertirrigacao-sub-tabs')) return;
+
+            Object.values(lagoonsData).forEach(lagoa => {
+                const id = lagoa.id, altura = lagoa.currentHeight, espacoVazio = 3.0 - altura;
+                const volumeL = calculateVolume(altura), volumeM3 = volumeL / 1000;
+                const percent = (altura / 3.0) * 100;
+                const variacao = altura - lagoa.previousHeight;
+
+                document.getElementById(`lagoa-altura-${id}`).textContent = altura.toFixed(2);
+                document.getElementById(`lagoa-espaco-${id}`).textContent = espacoVazio.toFixed(2);
+                document.getElementById(`lagoa-volume-litros-${id}`).textContent = volumeL.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+                document.getElementById(`lagoa-volume-m3-${id}`).textContent = `(${volumeM3.toFixed(2)} m³)`;
+                document.getElementById(`lagoa-percent-${id}`).textContent = `${percent.toFixed(0)}%`;
+                
+                const gaugeEl = document.getElementById(`lagoa-gauge-${id}`);
+                if(gaugeEl) {
+                    gaugeEl.style.height = `${percent}%`;
+                    gaugeEl.classList.remove('bg-cyan-400', 'bg-yellow-400', 'bg-orange-600', 'bg-red-600');
+                    if (percent >= 95) gaugeEl.classList.add('bg-red-600');
+                    else if (percent >= 90) gaugeEl.classList.add('bg-orange-600');
+                    else if (percent >= 80) gaugeEl.classList.add('bg-yellow-400');
+                    else gaugeEl.classList.add('bg-cyan-400');
+                }
+                
+                const variacaoEl = document.getElementById(`lagoa-variacao-${id}`);
+                if(variacao > 0.001) variacaoEl.innerHTML = `<span class="material-symbols-outlined text-red-400">arrow_upward</span><span class="text-red-400">Enchendo</span>`;
+                else if (variacao < -0.001) variacaoEl.innerHTML = `<span class="material-symbols-outlined text-green-400">arrow_downward</span><span class="text-green-400">Esvaziando</span>`;
+                else variacaoEl.innerHTML = `<span class="material-symbols-outlined">horizontal_rule</span><span>Estável</span>`;
+                
+                const alertIcon = document.getElementById(`lagoa-alert-icon-${id}`);
+                const alertGlow = document.getElementById(`lagoa-alert-glow-${id}`);
+                const card = document.getElementById(`lagoa-card-${id}`);
+                if (altura >= 2.5) {
+                    alertIcon.classList.remove('hidden'); alertGlow.classList.add('opacity-100'); card.classList.add('border-red-500');
+                } else {
+                    alertIcon.classList.add('hidden'); alertGlow.classList.remove('opacity-100'); card.classList.remove('border-red-500');
+                }
+
+                document.getElementById(`flow-1h-${id}`).textContent = `${lagoa.flowLastHour.toFixed(2)} m³`;
+                document.getElementById(`flow-24h-${id}`).textContent = `${lagoa.flowLast24h.toFixed(2)} m³`;
+                document.getElementById(`flow-season-${id}`).textContent = `${lagoa.flowSeason.toLocaleString('pt-BR', {maximumFractionDigits:0})} m³`;
+            });
+
+            // Update new summary cards
+            document.getElementById('total-volume-in-litros').textContent = totalVolumeIn.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+            document.getElementById('total-volume-in-m3').textContent = `(${(totalVolumeIn / 1000).toFixed(2)} m³)`;
+            document.getElementById('total-volume-out-litros').textContent = totalVolumeOut.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+            document.getElementById('total-volume-out-m3').textContent = `(${(totalVolumeOut / 1000).toFixed(2)} m³)`;
+
+            const metaInput = document.getElementById('meta-volume-input');
+            const metaValue = parseFloat(metaInput.value) || 0;
+            const totalInM3 = totalVolumeIn / 1000;
+            let progress = metaValue > 0 ? (totalInM3 / metaValue) * 100 : 0;
+            if (progress > 100) progress = 100;
+            
+            const progressBar = document.getElementById('meta-progress-bar');
+            let barColor = '#f59e0b'; // Amarelo
+            if (progress >= 85) {
+                barColor = '#40800c'; // Verde
+            } else if (progress >= 50) {
+                barColor = '#2563eb'; // Azul
+            }
+            progressBar.style.backgroundColor = barColor;
+            progressBar.style.width = `${progress}%`;
+            document.getElementById('meta-progress-text').textContent = `Progresso da Meta (${progress.toFixed(1)}%)`;
+
+
+            updateLagoasChart();
+        }
+
+        const footerDataLabels = {
+            id: 'footerDataLabels',
+            afterDatasetsDraw(chart, args, pluginOptions) {
+                const { ctx } = chart;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    if (!meta.hidden) {
+                        meta.data.forEach((element, index) => {
+                            const valueString = dataset.data[index].toFixed(0) + '%';
+                            ctx.save();
+                            ctx.font = '700 12px Inter, sans-serif';
+                            ctx.fillStyle = 'rgb(22, 163, 74)'; // Verde
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            // Posição ajustada para evitar sobreposição com o eixo x
+                            const yPos = element.base - 5;
+                            if (yPos < element.y + 15) { // Não desenha se for sobrepor a barra
+                                ctx.fillText(valueString, element.x, yPos);
+                            }
+                            ctx.restore();
+                        });
+                    }
+                });
+            }
+        };
+
+
+        function updateLagoasChart() {
+            const ctxEl = document.getElementById('lagoas-chart');
+            if (!ctxEl) return;
+            const ctx = ctxEl.getContext('2d');
+            const chartLabels = Object.values(lagoonsData).map(l => l.name);
+            const chartDataPoints = Object.values(lagoonsData).map(l => (l.currentHeight / 3.0) * 100);
+            const chartData = {
+                labels: chartLabels,
+                datasets: [{
+                    label: 'Nível de Preenchimento (%)', data: chartDataPoints,
+                    backgroundColor: chartDataPoints.map(p => {
+                        if (p >= 95) return 'rgba(220, 38, 38, 0.7)'; // red
+                        if (p >= 90) return 'rgba(234, 88, 12, 0.7)'; // orange
+                        if (p >= 80) return 'rgba(250, 204, 21, 0.7)'; // yellow
+                        return 'rgba(34, 211, 238, 0.6)'; // cyan
+                    }),
+                    borderColor: chartDataPoints.map(p => {
+                        if (p >= 95) return 'rgb(220, 38, 38)';
+                        if (p >= 90) return 'rgb(234, 88, 12)';
+                        if (p >= 80) return 'rgb(250, 204, 21)';
+                        return 'rgb(34, 211, 238)';
+                    }),
+                    borderWidth: 1, borderRadius: 5,
+                }]
+            };
+
+            if (lagoasChart) {
+                lagoasChart.data = chartData;
+                lagoasChart.update();
+            } else {
+                lagoasChart = new Chart(ctx, { type: 'bar', data: chartData,
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: { 
+                            y: { beginAtZero: true, max: 100, ticks: { callback: value => `${value}%` } }, 
+                            x: { ticks: { color: '#334155' } } 
+                        },
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const dataIndex = context.dataIndex;
+                                        const allLagoons = Object.values(lagoonsData);
+                                        const lagoa = allLagoons[dataIndex];
+                                        if (!lagoa) return 'Sem dados';
+
+                                        const volumeL = calculateVolume(lagoa.currentHeight);
+                                        const volumeM3 = volumeL / 1000;
+                                        const variacao = lagoa.currentHeight - lagoa.previousHeight;
+                                        let variacaoText;
+                                        if (variacao > 0.001) variacaoText = 'Enchendo';
+                                        else if (variacao < -0.001) variacaoText = 'Esvaziando';
+                                        else variacaoText = 'Estável';
+                                        
+                                        return [
+                                            `Nível: ${(lagoa.currentHeight/3.0 * 100).toFixed(1)}%`,
+                                            `Altura: ${lagoa.currentHeight.toFixed(2)}m`,
+                                            `Espaço Vazio: ${(3.0 - lagoa.currentHeight).toFixed(2)}m`,
+                                            `Volume: ${volumeL.toLocaleString('pt-BR', {maximumFractionDigits:0})} L`,
+                                            `Volume (m³): ${volumeM3.toFixed(2)} m³`,
+                                            `Variação: ${variacaoText}`
+                                        ];
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    plugins: [footerDataLabels]
+                });
+            }
+        }
+
+        function setupFertirrigacaoSubTabs() {
+            const tabsContainer = document.getElementById('fertirrigacao-sub-tabs');
+            const playPauseBtn = document.getElementById('play-pause-btn');
+            if (!tabsContainer || !playPauseBtn) return;
+
+            tabsContainer.addEventListener('click', (e) => {
+                const targetTab = e.target.closest('.fert-sub-tab');
+                if (targetTab) {
+                    if (fertirrigacaoSubTabInterval) { 
+                        clearInterval(fertirrigacaoSubTabInterval);
+                        fertirrigacaoSubTabInterval = null;
+                        playPauseBtn.innerHTML = `<span class="material-symbols-outlined">play_arrow</span> Autoplay`;
+                        playPauseBtn.classList.remove('bg-green-500', 'hover:bg-green-600', 'text-white');
+                        playPauseBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
+                    }
+                    tabsContainer.querySelectorAll('.fert-sub-tab').forEach(t => t.classList.remove('active'));
+                    targetTab.classList.add('active');
+                    document.querySelectorAll('.fert-sub-content').forEach(c => c.classList.remove('active'));
+                    document.getElementById(targetTab.dataset.tab).classList.add('active');
+                }
+            });
+
+            const cycleTabs = () => {
+                const tabs = Array.from(tabsContainer.querySelectorAll('.fert-sub-tab'));
+                const activeIndex = tabs.findIndex(t => t.classList.contains('active'));
+                const nextIndex = (activeIndex + 1) % tabs.length;
+                
+                const nextTab = tabs[nextIndex];
+                tabsContainer.querySelectorAll('.fert-sub-tab').forEach(t => t.classList.remove('active'));
+                nextTab.classList.add('active');
+                document.querySelectorAll('.fert-sub-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(nextTab.dataset.tab).classList.add('active');
+            };
+
+            playPauseBtn.addEventListener('click', () => {
+                if (fertirrigacaoSubTabInterval) {
+                    clearInterval(fertirrigacaoSubTabInterval);
+                    fertirrigacaoSubTabInterval = null;
+                    playPauseBtn.innerHTML = `<span class="material-symbols-outlined">play_arrow</span> Autoplay`;
+                    playPauseBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                    playPauseBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
+                } else {
+                    cycleTabs(); 
+                    fertirrigacaoSubTabInterval = setInterval(cycleTabs, 20000); // 20 segundos
+                    playPauseBtn.innerHTML = `<span class="material-symbols-outlined">pause</span> Pausar`;
+                    playPauseBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                    playPauseBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white');
+                }
+            });
+        }
+
+        function controlFertirrigacaoSimulation(start) {
+            if (start && !fertirrigacaoInterval) {
+                initializeLagoonsData(); 
+                updateFertirrigacaoUI();
+                setupFertirrigacaoSubTabs();
+                // Atualiza a cada 10 minutos (10 * 60 * 1000 = 600000 ms)
+                fertirrigacaoInterval = setInterval(simulateDataUpdate, 600000);
+
+                const metaInput = document.getElementById('meta-volume-input');
+                if (metaInput) {
+                    const updateMetaDisplay = () => {
+                        const metaValue = parseFloat(metaInput.value) || 0;
+                        const metaLitros = metaValue * 1000;
+                        const displayEl = document.getElementById('meta-volume-litros');
+                        if (displayEl) {
+                           displayEl.textContent = `= ${metaLitros.toLocaleString('pt-BR')} L`;
+                        }
+                    };
+                    metaInput.addEventListener('input', updateMetaDisplay);
+                    updateMetaDisplay(); // Chama uma vez para exibir o valor inicial
+                }
+
+            } else if (!start && fertirrigacaoInterval) {
+                clearInterval(fertirrigacaoInterval);
+                fertirrigacaoInterval = null;
+                if(fertirrigacaoSubTabInterval) {
+                    clearInterval(fertirrigacaoSubTabInterval);
+                    fertirrigacaoSubTabInterval = null;
+                }
+            }
+        }
+        
+        // ====================================================================
+        // FIM DA LÓGICA DE FERTIRRIGAÇÃO
+        // ====================================================================
+
         async function handleAddUser(e) {
             e.preventDefault();
             const form = e.target;
@@ -1014,26 +1316,26 @@
             const permissions = user.permissions?.join(', ') || 'Nenhuma';
             if (type === 'pendentes') {
                 return `<div class="p-4 border rounded-lg flex justify-between items-center" id="user-card-${user.uid}">
-                            <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
-                            <div class="flex gap-2">
-                                <button data-uid="${user.uid}" data-action="approve" class="action-user-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Aprovar</button>
-                                <button data-uid="${user.uid}" data-action="reject" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Rejeitar</button>
-                            </div>
-                        </div>`;
-            } else {
-                return `<div class="p-4 border rounded-lg" id="user-card-${user.uid}">
-                            <div class="flex justify-between items-center">
                                 <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
                                 <div class="flex gap-2">
-                                    <button data-uid="${user.uid}" data-action="manage" class="action-user-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Editar</button>
-                                    <button data-uid="${user.uid}" data-action="delete" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Excluir</button>
+                                    <button data-uid="${user.uid}" data-action="approve" class="action-user-btn bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">Aprovar</button>
+                                    <button data-uid="${user.uid}" data-action="reject" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Rejeitar</button>
                                 </div>
-                            </div>
-                            <div class="mt-2 text-xs text-gray-500">
-                                <p><strong>Nível:</strong> ${user.role}</p>
-                                ${user.role === 'Operação' || user.role === 'Lider' ? `<p><strong>Permissões:</strong> ${permissions}</p>` : ''}
-                            </div>
-                        </div>`;
+                            </div>`;
+            } else {
+                return `<div class="p-4 border rounded-lg" id="user-card-${user.uid}">
+                                <div class="flex justify-between items-center">
+                                    <div><p class="font-bold">${user.displayName}</p><p class="text-sm text-gray-600">${user.email}</p></div>
+                                    <div class="flex gap-2">
+                                        <button data-uid="${user.uid}" data-action="manage" class="action-user-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Editar</button>
+                                        <button data-uid="${user.uid}" data-action="delete" class="action-user-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Excluir</button>
+                                    </div>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500">
+                                    <p><strong>Nível:</strong> ${user.role}</p>
+                                    ${user.role === 'Operação' || user.role === 'Lider' ? `<p><strong>Permissões:</strong> ${permissions}</p>` : ''}
+                                </div>
+                            </div>`;
             }
         }
 
@@ -1316,7 +1618,131 @@
         }
 
         function getFertirrigacaoTabHTML() {
-            return `<h2 class="text-9xl text-center">🚧</h2><p class="text-4xl font-bold text-gray-500 mt-4 text-center">Em Construção</p>`;
+            const lagoonNames = ["Carregamento Usina A", "Carregamento Usina B", "Eucalipto Cheiroso", "Castanha", "Santa Teresinha"];
+
+            const cardsHTML = lagoonNames.map((name, index) => {
+                const id = index + 1;
+                return `
+                <div id="lagoa-card-${id}" class="bg-slate-800 rounded-xl shadow-lg p-6 relative overflow-hidden border-2 border-transparent transition-all duration-300">
+                    <div id="lagoa-alert-glow-${id}" class="absolute inset-0 bg-red-500/30 rounded-xl blur-2xl opacity-0 transition-opacity duration-500 animate-pulse"></div>
+                    <div class="flex justify-between items-start z-10 relative">
+                        <div>
+                            <p class="text-sm text-slate-400">Lagoa ${id}</p>
+                            <h3 class="text-xl font-bold text-white">${name}</h3>
+                        </div>
+                        <div id="lagoa-alert-icon-${id}" class="p-2 bg-red-500/20 text-red-400 rounded-full hidden">
+                            <span class="material-symbols-outlined">warning</span>
+                        </div>
+                    </div>
+                    <div class="flex mt-4 items-end gap-6 z-10 relative">
+                        <div class="w-16 h-40 bg-slate-700 rounded-full flex flex-col-reverse relative overflow-hidden border border-slate-600">
+                            <div id="lagoa-gauge-${id}" class="w-full bg-cyan-400 rounded-b-full transition-all duration-500" style="height: 0%;"></div>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span id="lagoa-percent-${id}" class="text-white font-bold text-lg drop-shadow-md">0%</span>
+                            </div>
+                        </div>
+                        <div class="flex-1 space-y-3">
+                            <div>
+                                <p class="text-xs text-slate-400 uppercase">Altura / Espaço Vazio</p>
+                                <p class="text-2xl font-semibold text-white">
+                                    <span id="lagoa-altura-${id}">0.00</span>m / <span id="lagoa-espaco-${id}">3.00</span>m
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-400 uppercase">Volume Estimado</p>
+                                <p class="text-2xl font-semibold text-white"><span id="lagoa-volume-litros-${id}">0</span> Litros</p>
+                                <p class="text-sm text-slate-400 -mt-1"><span id="lagoa-volume-m3-${id}">(0.00 m³)</span></p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-400 uppercase">Variação</p>
+                                <div id="lagoa-variacao-${id}" class="flex items-center gap-2 text-slate-400 font-medium">
+                                    <span class="material-symbols-outlined">horizontal_rule</span>
+                                    <span>Estável</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+            
+            const summaryCardsHTML = `
+                <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
+                    <h3 class="text-xl font-bold text-white mb-1">Volume Acumulado de Entrada</h3>
+                    <p class="text-sm text-slate-400 mb-4">Total de volume adicionado em todas as lagoas.</p>
+                    <p class="text-4xl font-bold text-cyan-400"><span id="total-volume-in-litros">0</span> L</p>
+                    <p class="text-lg text-slate-300 -mt-1"><span id="total-volume-in-m3">(0.00 m³)</span></p>
+                </div>
+                <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
+                    <h3 class="text-xl font-bold text-white mb-1">Volume Acumulado de Saída</h3>
+                    <p class="text-sm text-slate-400 mb-4">Total de volume removido de todas as lagoas.</p>
+                    <p class="text-4xl font-bold text-amber-400"><span id="total-volume-out-litros">0</span> L</p>
+                    <p class="text-lg text-slate-300 -mt-1"><span id="total-volume-out-m3">(0.00 m³)</span></p>
+                </div>
+                 <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
+                    <h3 class="text-xl font-bold text-white mb-2">Meta de Volume (m³ / L)</h3>
+                    <div class="flex items-center gap-2">
+                      <input type="number" id="meta-volume-input" class="bg-slate-700 border border-slate-600 rounded-md p-2 w-full text-white" placeholder="Definir meta em m³" value="15000" ${currentUserProfile.role !== 'Master' ? 'readonly' : ''}>
+                      <span id="meta-volume-litros" class="text-sm text-slate-400 whitespace-nowrap"></span>
+                    </div>
+                    <div class="mt-4">
+                        <p id="meta-progress-text" class="text-sm text-slate-400 mb-1">Progresso da Meta (0%)</p>
+                        <div class="w-full bg-slate-700 rounded-full h-4 overflow-hidden border border-slate-600">
+                            <div id="meta-progress-bar" class="h-4 rounded-full transition-all duration-500" style="width: 0%; background-color: #f59e0b;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const flowRowsHTML = lagoonNames.map((name, index) => {
+                const id = index + 1;
+                return `<tr class="border-b border-slate-700 text-slate-300">
+                    <td class="p-3 font-semibold text-white">${name}</td>
+                    <td class="p-3 font-mono" id="flow-1h-${id}">0.00 m³</td>
+                    <td class="p-3 font-mono" id="flow-24h-${id}">0.00 m³</td>
+                    <td class="p-3 font-mono text-cyan-400" id="flow-season-${id}">0 m³</td>
+                </tr>`;
+            }).join('');
+
+            return `
+            <div class="flex justify-between items-center mb-6">
+                <nav id="fertirrigacao-sub-tabs" class="flex gap-2 items-center">
+                    <button class="fert-sub-tab active" data-tab="niveis-content">Níveis Atuais</button>
+                    <button class="fert-sub-tab" data-tab="vazao-content">Vazão e Acumulado</button>
+                    <button class="fert-sub-tab" data-tab="grafico-content">Gráfico Geral</button>
+                </nav>
+                <button id="play-pause-btn" class="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-full shadow hover:bg-red-600 transition">
+                    <span class="material-symbols-outlined">play_arrow</span> Autoplay
+                </button>
+            </div>
+
+            <div id="niveis-content" class="fert-sub-content active">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">${cardsHTML}</div>
+                    </div>
+                    <div class="space-y-6">${summaryCardsHTML}</div>
+                </div>
+            </div>
+            <div id="vazao-content" class="fert-sub-content">
+                <div class="bg-slate-800 rounded-xl shadow-lg p-6">
+                    <h3 class="text-xl font-bold text-white mb-4">Resumo de Vazão e Acumulado de Safra (Simulado)</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="border-b border-slate-600 text-sm text-slate-400 uppercase">
+                                    <th class="p-3">Lagoa</th><th class="p-3">Vazão (Última 1h)</th><th class="p-3">Vazão (24h)</th><th class="p-3">Acumulado (Safra)</th>
+                                </tr>
+                            </thead>
+                            <tbody>${flowRowsHTML}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div id="grafico-content" class="fert-sub-content">
+                <div class="bg-white p-4 rounded-xl shadow-xl h-96 lg:h-[32rem]">
+                    <canvas id="lagoas-chart"></canvas>
+                </div>
+            </div>`;
         }
 
         function getLimitesTabHTML() {
@@ -1331,7 +1757,6 @@
                         </div>
                     </div>
                      <p class="text-sm text-gray-500 mb-6">Selecione um equipamento para editar seu nome e limites. O MAC Address é fixo e não pode ser alterado.</p>
-
                     <form id="limits-form">
                         <div class="mb-4">
                             <label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento (ID)</label>
@@ -1341,13 +1766,11 @@
                              <label for="equipment-mac" class="block text-sm font-medium text-gray-700">MAC Address (Fixo)</label>
                             <input type="text" id="equipment-mac" class="mt-1 block w-full rounded-md bg-gray-100 cursor-not-allowed font-mono" readonly>
                         </div>
-
                         <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
                         <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
                         <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Alterações</button>
                     </form>
                 </div>
-                
                 <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
                      <h2 class="text-3xl font-bold text-gray-900 mb-6">Vincular Novo Equipamento</h2>
                      <form id="new-equipment-form" class="space-y-4">
@@ -1362,8 +1785,7 @@
                          <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-emerald-600 hover:bg-emerald-700">Vincular Equipamento</button>
                      </form>
                 </div>
-            </div>
-            `;
+            </div>`;
         }
 
         function getAdminHTML() {
@@ -1375,7 +1797,6 @@
                         <div class="admin-sub-tab" data-tab="gerenciar">Gerenciar Usuários</div>
                         <div class="admin-sub-tab" data-tab="adicionar">Adicionar Manualmente</div>
                     </div>
-
                     <div id="pendentes-content" class="admin-content space-y-4">
                         <h3 class="text-xl font-semibold">Usuários aguardando aprovação</h3>
                         <div id="pendentes-list" class="space-y-3"></div>
@@ -1399,7 +1820,6 @@
         function getManagementModalHTML(user, isApproval) {
             const title = isApproval ? 'Aprovar Usuário' : 'Gerenciar Usuário';
             const isMaster = user.role === 'Master';
-            
             return `
             <div id="management-modal" class="modal-container fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
                 <div class="modal-content bg-white rounded-lg shadow-2xl p-8 max-w-lg w-full relative">
