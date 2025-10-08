@@ -73,6 +73,37 @@
         .fert-sub-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
+        .zoom-hover-card {
+            transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            z-index: 10;
+            position: relative;
+        }
+        .zoom-hover-card:hover {
+            transform: scale(1.5);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            z-index: 20;
+        }
+
+        #vazao-table th {
+            padding: 1rem 0.75rem;
+            border-bottom: 2px solid rgb(55 65 81);
+            color: rgb(156 163 175);
+            font-weight: 600;
+            text-align: left;
+            font-size: 1rem;
+            text-transform: uppercase;
+        }
+        #vazao-table td {
+            padding: 1rem 0.75rem;
+            border-bottom: 1px solid rgb(75 85 99);
+            color: rgb(209 213 219);
+            font-size: 1.125rem;
+        }
+        #vazao-table tr:last-child td {
+            border-bottom: none;
+        }
+
+
         @property --angle {
           syntax: '<angle>';
           initial-value: 0deg;
@@ -92,7 +123,7 @@
             animation: rotate 8s linear infinite;
         }
         .animated-border::after {
-            content: ''; position: absolute; z-index: 1; inset: 2px; border-radius: 0.6rem; background: white;
+            content: ''; position: absolute; z-index: 1; inset: 2px; border-radius: 0.6rem; background: var(--card-bg, white);
         }
         .card-content-wrapper { position: relative; z-index: 2; padding: 1.5rem; }
         .login-card-border-top { border-top: 8px solid var(--animation-color, var(--color-primary)); padding: 0; }
@@ -1002,17 +1033,31 @@
                 }
                 
                 const variacaoEl = document.getElementById(`lagoa-variacao-${id}`);
-                if(variacao > 0.001) variacaoEl.innerHTML = `<span class="material-symbols-outlined text-red-400">arrow_upward</span><span class="text-red-400">Enchendo</span>`;
-                else if (variacao < -0.001) variacaoEl.innerHTML = `<span class="material-symbols-outlined text-green-400">arrow_downward</span><span class="text-green-400">Esvaziando</span>`;
-                else variacaoEl.innerHTML = `<span class="material-symbols-outlined">horizontal_rule</span><span>Estável</span>`;
+                const alertGlow = document.getElementById(`lagoa-alert-glow-${id}`);
+                
+                if (variacao > 0.001) {
+                    variacaoEl.innerHTML = `<span class="material-symbols-outlined text-red-400">arrow_upward</span><span class="text-red-400">Enchendo</span>`;
+                    alertGlow.style.backgroundColor = 'rgba(220, 38, 38, 0.4)';
+                    alertGlow.classList.remove('opacity-0');
+                } else if (variacao < -0.001) {
+                    variacaoEl.innerHTML = `<span class="material-symbols-outlined text-green-400">arrow_downward</span><span class="text-green-400">Esvaziando</span>`;
+                    alertGlow.style.backgroundColor = 'rgba(16, 185, 129, 0.4)';
+                    alertGlow.classList.remove('opacity-0');
+                } else {
+                    variacaoEl.innerHTML = `<span class="material-symbols-outlined">horizontal_rule</span><span>Estável</span>`;
+                    alertGlow.classList.add('opacity-0');
+                }
                 
                 const alertIcon = document.getElementById(`lagoa-alert-icon-${id}`);
-                const alertGlow = document.getElementById(`lagoa-alert-glow-${id}`);
                 const card = document.getElementById(`lagoa-card-${id}`);
-                if (altura >= 2.5) {
-                    alertIcon.classList.remove('hidden'); alertGlow.classList.add('opacity-100'); card.classList.add('border-red-500');
+                if (altura >= 2.8) {
+                    alertIcon.classList.remove('hidden');
+                    card.classList.add('border-red-500');
+                    alertGlow.style.backgroundColor = 'rgba(220, 38, 38, 0.6)'; // Torna o brilho mais forte no alerta máximo
+                    alertGlow.classList.remove('opacity-0');
                 } else {
-                    alertIcon.classList.add('hidden'); alertGlow.classList.remove('opacity-100'); card.classList.remove('border-red-500');
+                    alertIcon.classList.add('hidden');
+                    card.classList.remove('border-red-500');
                 }
 
                 document.getElementById(`flow-1h-${id}`).textContent = `${lagoa.flowLastHour.toFixed(2)} m³`;
@@ -1043,6 +1088,16 @@
             progressBar.style.width = `${progress}%`;
             document.getElementById('meta-progress-text').textContent = `Progresso da Meta (${progress.toFixed(1)}%)`;
 
+            const summaryGlow = document.getElementById('summary-alert-glow');
+            if (summaryGlow) {
+                if (totalVolumeIn > totalVolumeOut) {
+                    summaryGlow.style.backgroundColor = 'rgba(220, 38, 38, 0.4)'; // Red
+                    summaryGlow.classList.remove('opacity-0');
+                } else {
+                    summaryGlow.style.backgroundColor = 'rgba(16, 185, 129, 0.4)'; // Green
+                    summaryGlow.classList.remove('opacity-0');
+                }
+            }
 
             updateLagoasChart();
         }
@@ -1058,12 +1113,13 @@
                             const valueString = dataset.data[index].toFixed(0) + '%';
                             ctx.save();
                             ctx.font = '700 12px Inter, sans-serif';
-                            ctx.fillStyle = 'rgb(22, 163, 74)'; // Verde
+                            ctx.fillStyle = '#ffffff';
+                            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+                            ctx.shadowBlur = 4;
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'bottom';
-                            // Posição ajustada para evitar sobreposição com o eixo x
-                            const yPos = element.base - 5;
-                            if (yPos < element.y + 15) { // Não desenha se for sobrepor a barra
+                            const yPos = element.base - 8;
+                             if (yPos > element.y + 15) { 
                                 ctx.fillText(valueString, element.x, yPos);
                             }
                             ctx.restore();
@@ -1080,23 +1136,22 @@
             const ctx = ctxEl.getContext('2d');
             const chartLabels = Object.values(lagoonsData).map(l => l.name);
             const chartDataPoints = Object.values(lagoonsData).map(l => (l.currentHeight / 3.0) * 100);
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+            gradient.addColorStop(0, 'rgba(6, 182, 212, 1)');   // ciano-500
+            gradient.addColorStop(1, 'rgba(8, 145, 178, 0.3)'); // ciano-600 com opacidade
+
             const chartData = {
                 labels: chartLabels,
                 datasets: [{
-                    label: 'Nível de Preenchimento (%)', data: chartDataPoints,
-                    backgroundColor: chartDataPoints.map(p => {
-                        if (p >= 95) return 'rgba(220, 38, 38, 0.7)'; // red
-                        if (p >= 90) return 'rgba(234, 88, 12, 0.7)'; // orange
-                        if (p >= 80) return 'rgba(250, 204, 21, 0.7)'; // yellow
-                        return 'rgba(34, 211, 238, 0.6)'; // cyan
-                    }),
-                    borderColor: chartDataPoints.map(p => {
-                        if (p >= 95) return 'rgb(220, 38, 38)';
-                        if (p >= 90) return 'rgb(234, 88, 12)';
-                        if (p >= 80) return 'rgb(250, 204, 21)';
-                        return 'rgb(34, 211, 238)';
-                    }),
-                    borderWidth: 1, borderRadius: 5,
+                    label: 'Nível de Preenchimento (%)', 
+                    data: chartDataPoints,
+                    backgroundColor: gradient,
+                    borderColor: 'rgba(107, 227, 242, 0.8)',
+                    borderWidth: 2, 
+                    borderRadius: 5,
+                    hoverBackgroundColor: 'rgba(6, 182, 212, 1)',
+                    hoverBorderColor: '#fff'
                 }]
             };
 
@@ -1108,12 +1163,27 @@
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         scales: { 
-                            y: { beginAtZero: true, max: 100, ticks: { callback: value => `${value}%` } }, 
-                            x: { ticks: { color: '#334155' } } 
+                            y: { 
+                                beginAtZero: true, 
+                                max: 100, 
+                                grid: { color: 'rgba(148, 163, 184, 0.2)' },
+                                ticks: { 
+                                    color: '#94a3b8',
+                                    callback: value => `${value}%`
+                                } 
+                            }, 
+                            x: { 
+                                grid: { display: false },
+                                ticks: { color: '#94a3b8' } 
+                            } 
                         },
                         plugins: { 
                             legend: { display: false },
                             tooltip: {
+                                backgroundColor: 'rgba(0,0,0,0.8)',
+                                titleFont: { size: 14, weight: 'bold' },
+                                bodyFont: { size: 12 },
+                                displayColors: false,
                                 callbacks: {
                                     label: function(context) {
                                         const dataIndex = context.dataIndex;
@@ -1623,8 +1693,8 @@
             const cardsHTML = lagoonNames.map((name, index) => {
                 const id = index + 1;
                 return `
-                <div id="lagoa-card-${id}" class="bg-slate-800 rounded-xl shadow-lg p-6 relative overflow-hidden border-2 border-transparent transition-all duration-300">
-                    <div id="lagoa-alert-glow-${id}" class="absolute inset-0 bg-red-500/30 rounded-xl blur-2xl opacity-0 transition-opacity duration-500 animate-pulse"></div>
+                <div id="lagoa-card-${id}" class="zoom-hover-card bg-slate-800 rounded-xl shadow-lg p-6 relative overflow-hidden border-2 border-transparent">
+                    <div id="lagoa-alert-glow-${id}" class="absolute inset-0 rounded-xl blur-2xl opacity-0 transition-opacity duration-500 animate-pulse"></div>
                     <div class="flex justify-between items-start z-10 relative">
                         <div>
                             <p class="text-sm text-slate-400">Lagoa ${id}</p>
@@ -1644,13 +1714,13 @@
                         <div class="flex-1 space-y-3">
                             <div>
                                 <p class="text-xs text-slate-400 uppercase">Altura / Espaço Vazio</p>
-                                <p class="text-2xl font-semibold text-white">
+                                <p class="text-xl font-semibold text-white">
                                     <span id="lagoa-altura-${id}">0.00</span>m / <span id="lagoa-espaco-${id}">3.00</span>m
                                 </p>
                             </div>
                             <div>
                                 <p class="text-xs text-slate-400 uppercase">Volume Estimado</p>
-                                <p class="text-2xl font-semibold text-white"><span id="lagoa-volume-litros-${id}">0</span> Litros</p>
+                                <p class="text-xl font-semibold text-white"><span id="lagoa-volume-litros-${id}">0</span> L</p>
                                 <p class="text-sm text-slate-400 -mt-1"><span id="lagoa-volume-m3-${id}">(0.00 m³)</span></p>
                             </div>
                             <div>
@@ -1665,29 +1735,34 @@
                 </div>`;
             }).join('');
             
-            const summaryCardsHTML = `
-                <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
-                    <h3 class="text-xl font-bold text-white mb-1">Volume Acumulado de Entrada</h3>
-                    <p class="text-sm text-slate-400 mb-4">Total de volume adicionado em todas as lagoas.</p>
-                    <p class="text-4xl font-bold text-cyan-400"><span id="total-volume-in-litros">0</span> L</p>
-                    <p class="text-lg text-slate-300 -mt-1"><span id="total-volume-in-m3">(0.00 m³)</span></p>
-                </div>
-                <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
-                    <h3 class="text-xl font-bold text-white mb-1">Volume Acumulado de Saída</h3>
-                    <p class="text-sm text-slate-400 mb-4">Total de volume removido de todas as lagoas.</p>
-                    <p class="text-4xl font-bold text-amber-400"><span id="total-volume-out-litros">0</span> L</p>
-                    <p class="text-lg text-slate-300 -mt-1"><span id="total-volume-out-m3">(0.00 m³)</span></p>
-                </div>
-                 <div class="bg-slate-800 rounded-xl shadow-lg p-6 text-white">
-                    <h3 class="text-xl font-bold text-white mb-2">Meta de Volume (m³ / L)</h3>
-                    <div class="flex items-center gap-2">
-                      <input type="number" id="meta-volume-input" class="bg-slate-700 border border-slate-600 rounded-md p-2 w-full text-white" placeholder="Definir meta em m³" value="15000" ${currentUserProfile.role !== 'Master' ? 'readonly' : ''}>
-                      <span id="meta-volume-litros" class="text-sm text-slate-400 whitespace-nowrap"></span>
-                    </div>
-                    <div class="mt-4">
-                        <p id="meta-progress-text" class="text-sm text-slate-400 mb-1">Progresso da Meta (0%)</p>
-                        <div class="w-full bg-slate-700 rounded-full h-4 overflow-hidden border border-slate-600">
-                            <div id="meta-progress-bar" class="h-4 rounded-full transition-all duration-500" style="width: 0%; background-color: #f59e0b;"></div>
+            const summaryCardHTML = `
+                <div id="summary-card" class="zoom-hover-card bg-slate-800 rounded-xl shadow-lg relative overflow-hidden">
+                    <div id="summary-alert-glow" class="absolute inset-0 rounded-xl blur-2xl transition-opacity duration-500 animate-pulse opacity-0"></div>
+                    <div class="h-full flex flex-col justify-between space-y-6 p-6 text-white relative z-10">
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Volume Acumulado de Entrada</h3>
+                            <p class="text-3xl font-bold text-cyan-400"><span id="total-volume-in-litros">0</span> L</p>
+                            <p class="text-base text-slate-300 -mt-1"><span id="total-volume-in-m3">(0.00 m³)</span></p>
+                        </div>
+                        <div class="border-t border-slate-600"></div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Volume Acumulado de Saída</h3>
+                            <p class="text-3xl font-bold text-amber-400"><span id="total-volume-out-litros">0</span> L</p>
+                            <p class="text-base text-slate-300 -mt-1"><span id="total-volume-out-m3">(0.00 m³)</span></p>
+                        </div>
+                        <div class="border-t border-slate-600"></div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white mb-2">Meta de Volume (m³ / L)</h3>
+                            <div class="flex items-center gap-2">
+                            <input type="number" id="meta-volume-input" class="bg-slate-700 border border-slate-600 rounded-md p-2 w-full text-white" placeholder="Definir meta em m³" value="15000" ${currentUserProfile.role !== 'Master' ? 'readonly' : ''}>
+                            <span id="meta-volume-litros" class="text-sm text-slate-400 whitespace-nowrap"></span>
+                            </div>
+                            <div class="mt-3">
+                                <p id="meta-progress-text" class="text-sm text-slate-400 mb-1">Progresso da Meta (0%)</p>
+                                <div class="w-full bg-slate-700 rounded-full h-4 overflow-hidden border border-slate-600">
+                                    <div id="meta-progress-bar" class="h-4 rounded-full transition-all duration-500" style="width: 0%; background-color: #f59e0b;"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1695,11 +1770,11 @@
             
             const flowRowsHTML = lagoonNames.map((name, index) => {
                 const id = index + 1;
-                return `<tr class="border-b border-slate-700 text-slate-300">
-                    <td class="p-3 font-semibold text-white">${name}</td>
-                    <td class="p-3 font-mono" id="flow-1h-${id}">0.00 m³</td>
-                    <td class="p-3 font-mono" id="flow-24h-${id}">0.00 m³</td>
-                    <td class="p-3 font-mono text-cyan-400" id="flow-season-${id}">0 m³</td>
+                return `<tr>
+                    <td class="font-semibold text-white">${name}</td>
+                    <td class="font-mono" id="flow-1h-${id}">0.00 m³</td>
+                    <td class="font-mono" id="flow-24h-${id}">0.00 m³</td>
+                    <td class="font-mono text-cyan-400" id="flow-season-${id}">0 m³</td>
                 </tr>`;
             }).join('');
 
@@ -1716,21 +1791,19 @@
             </div>
 
             <div id="niveis-content" class="fert-sub-content active">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div class="lg:col-span-2">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">${cardsHTML}</div>
-                    </div>
-                    <div class="space-y-6">${summaryCardsHTML}</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                   ${cardsHTML}
+                   ${summaryCardHTML}
                 </div>
             </div>
             <div id="vazao-content" class="fert-sub-content">
                 <div class="bg-slate-800 rounded-xl shadow-lg p-6">
                     <h3 class="text-xl font-bold text-white mb-4">Resumo de Vazão e Acumulado de Safra (Simulado)</h3>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left">
+                        <table id="vazao-table" class="w-full">
                             <thead>
-                                <tr class="border-b border-slate-600 text-sm text-slate-400 uppercase">
-                                    <th class="p-3">Lagoa</th><th class="p-3">Vazão (Última 1h)</th><th class="p-3">Vazão (24h)</th><th class="p-3">Acumulado (Safra)</th>
+                                <tr>
+                                    <th>Lagoa</th><th>Vazão (Última 1h)</th><th>Vazão (24h)</th><th>Acumulado (Safra)</th>
                                 </tr>
                             </thead>
                             <tbody>${flowRowsHTML}</tbody>
@@ -1739,7 +1812,7 @@
                 </div>
             </div>
             <div id="grafico-content" class="fert-sub-content">
-                <div class="bg-white p-4 rounded-xl shadow-xl h-96 lg:h-[32rem]">
+                <div class="bg-slate-900 p-4 rounded-xl shadow-2xl h-96 lg:h-[32rem]">
                     <canvas id="lagoas-chart"></canvas>
                 </div>
             </div>`;
