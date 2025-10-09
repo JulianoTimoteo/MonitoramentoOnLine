@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.0</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -56,9 +56,10 @@
         .table-header { background-color: var(--color-primary); color: white; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem; }
         .table-row:nth-child(even) { background-color: #f3f4f6; }
 
-        .status-produtivo { border-color: #10b981 !important; color: #059669 !important; }
-        .status-parado { border-color: #f59e0b !important; color: #d97706 !important; }
-        .status-manutencao { border-color: #ef4444 !important; color: #dc2626 !important; }
+        .status-produtivo { border-color: #40800c !important; color: #40800c !important; }
+        .status-parado { border-color: #ef4444 !important; color: #dc2626 !important; }
+        .status-deslocando { border-color: #f59e0b !important; color: #d97706 !important; }
+        .status-manutencao { border-color: #6366f1 !important; color: #4f46e5 !important; }
         .status-erro { border-color: #6b7280 !important; color: #4b5563 !important; }
 
         .modal-content { transition: opacity 0.3s ease-out, transform 0.3s ease-out; transform: scale(0.95); opacity: 0; }
@@ -130,7 +131,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, serverTimestamp, orderBy, limit, getDoc, updateDoc, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, serverTimestamp, orderBy, limit, getDoc, updateDoc, where, getDocs, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
         const FIREBASE_CONFIG = {
             apiKey: "AIzaSyBN-jcSaOxiIg9H8Zc2MxdPoBe36g3qnV4", 
@@ -154,6 +155,7 @@
         const CONNECTION_TIMEOUT_MS = 5 * 60 * 1000;
         
         let currentEquipmentId = null; 
+        let currentMacAddress = null;
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
@@ -209,6 +211,9 @@
             if (canManageLimits) {
                 document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
                 document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
+                // Adicionando o listener para o novo botão 'Ativar'
+                const activateBtn = document.getElementById('activate-equipment-btn');
+                if (activateBtn) activateBtn.addEventListener('click', handleActivateEquipment);
             }
 
             if (currentUserProfile.role === 'Master') {
@@ -242,9 +247,11 @@
 
                     snapshot.forEach(doc => {
                         const equipmentId = doc.id;
+                        const data = doc.data();
                         idList.push(equipmentId);
                         if (!firstEquipmentId) firstEquipmentId = equipmentId;
-                        const optionHTML = `<option value="${equipmentId}">${equipmentId}</option>`;
+                        const activeMarker = data.isActive ? ' ✔️' : ''; // Adiciona um check se ativo
+                        const optionHTML = `<option value="${equipmentId}">${equipmentId}${activeMarker}</option>`;
                         implementosSelect.innerHTML += optionHTML;
                         limitesSelect.innerHTML += optionHTML;
                     });
@@ -257,7 +264,6 @@
                         implementosSelect.value = idToSelect;
                         limitesSelect.value = idToSelect;
                         if (currentEquipmentId !== idToSelect) {
-                            currentEquipmentId = idToSelect;
                             loadEquipmentData(idToSelect);
                         }
                     }
@@ -266,7 +272,6 @@
                 const handleSelectionChange = (event) => {
                     const selectedEquipmentId = event.target.value;
                     if (selectedEquipmentId) {
-                        currentEquipmentId = selectedEquipmentId;
                         implementosSelect.value = selectedEquipmentId;
                         limitesSelect.value = selectedEquipmentId;
                         loadEquipmentData(selectedEquipmentId);
@@ -281,18 +286,22 @@
                 showMessage('Erro', 'Não foi possível carregar a lista de equipamentos.', 'error');
             }
         }
-
+        
         async function loadEquipmentData(equipmentId) {
+            currentEquipmentId = equipmentId;
             unsubscribeLimits();
             unsubscribeReadings();
             readingsCache = [];
             
             const nameInput = document.getElementById('equipment-name');
             const macInput = document.getElementById('equipment-mac');
+            const activateBtn = document.getElementById('activate-equipment-btn');
 
             if (!equipmentId) {
+                currentMacAddress = null;
                 if (nameInput) nameInput.value = '';
                 if (macInput) macInput.value = '';
+                if (activateBtn) activateBtn.classList.add('hidden');
                 updateDashboard([]);
                 updateConfigForm(null);
                 return;
@@ -303,11 +312,31 @@
 
             if (limitsDoc.exists()) {
                 const data = limitsDoc.data();
+                currentMacAddress = data.mac || null;
                 if (nameInput) nameInput.value = equipmentId;
-                if (macInput) macInput.value = data.mac || '';
+                if (macInput) macInput.value = currentMacAddress || '';
+                if (activateBtn) {
+                    activateBtn.classList.remove('hidden', 'bg-gray-400', 'cursor-not-allowed', 'bg-emerald-600', 'hover:bg-emerald-700');
+                    if(data.isActive) {
+                        activateBtn.textContent = 'Equipamento Ativo';
+                        activateBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
+                        activateBtn.disabled = true;
+                    } else {
+                        activateBtn.textContent = 'Ativar este Equipamento';
+                        activateBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                        activateBtn.disabled = false;
+                    }
+                }
                 
                 listenToLimits(equipmentId);
-                listenToReadings(equipmentId);
+                listenToReadings(equipmentId, currentMacAddress); 
+            } else {
+                currentMacAddress = null;
+                if (nameInput) nameInput.value = equipmentId;
+                if (macInput) macInput.value = 'MAC não encontrado!';
+                if (activateBtn) activateBtn.classList.add('hidden');
+                listenToReadings(equipmentId, null); 
+                updateConfigForm(null);
             }
         }
         
@@ -321,12 +350,6 @@
                 return showMessage('Erro', 'MAC Address e Nome do Equipamento são obrigatórios.', 'error');
             }
             
-            const macQuery = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), where("mac", "==", newMac));
-            const macSnapshot = await getDocs(macQuery);
-            if (!macSnapshot.empty) {
-                return showMessage('Erro de Duplicidade', `O MAC Address ${newMac} já está vinculado a outro equipamento.`, 'error');
-            }
-
             const nameRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, newName);
             const nameDoc = await getDoc(nameRef);
             if (nameDoc.exists()) {
@@ -337,14 +360,15 @@
                 const defaultLimits = {
                     mac: newMac,
                     equipamento: newName,
+                    isActive: false, 
                     produtivoMin: 30.0,
                     produtivoMax: 45.0,
                     paradoCentro: 75.0,
-                    paradoTolerancia: 5.0,
+                    paradoTolerancia: 2.0,
                     createdAt: serverTimestamp()
                 };
                 await setDoc(nameRef, defaultLimits);
-                showMessage('Sucesso!', `Equipamento "${newName}" vinculado com sucesso.`, 'success');
+                showMessage('Sucesso!', `Equipamento "${newName}" vinculado. Vá para a aba Limites para ativá-lo.`, 'success');
                 form.reset();
             } catch (error) {
                 console.error("Erro ao vincular equipamento:", error);
@@ -393,7 +417,7 @@
                 }
             } 
             else {
-                const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O histórico de leituras antigo NÃO será migrado para o novo nome. Deseja continuar?`;
+                const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O perfil antigo será apagado. Deseja continuar?`;
                 
                 showConfirmationModal(confirmMessage, async () => {
                     try {
@@ -425,20 +449,42 @@
                         
                         showMessage('Sucesso!', `Equipamento renomeado para "${newName}".`, 'success');
                         
-                        currentEquipmentId = newName;
-
                     } catch (error) {
                         console.error("Erro ao renomear equipamento:", error);
-                        let userMessage = 'Ocorreu um erro durante a renomeação.';
-                        if (error.code === 'permission-denied') {
-                            userMessage = 'Erro de permissão. Verifique as regras de segurança do Firestore para permitir a criação e exclusão de documentos.';
-                        }
-                        showMessage('Erro', userMessage, 'error');
+                        showMessage('Erro', 'Ocorreu um erro durante a renomeação.', 'error');
                     }
                 });
             }
         }
         
+        async function handleActivateEquipment() {
+            if (!currentEquipmentId || !currentMacAddress) {
+                return showMessage('Erro', 'Nenhum equipamento selecionado para ativar.', 'error');
+            }
+            
+            const batch = writeBatch(db);
+            const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), where("mac", "==", currentMacAddress));
+            
+            try {
+                const querySnapshot = await getDocs(q);
+                // Desativa todos os outros equipamentos com o mesmo MAC
+                querySnapshot.forEach(document => {
+                    batch.update(document.ref, { isActive: false });
+                });
+                
+                // Ativa o equipamento selecionado
+                const currentDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, currentEquipmentId);
+                batch.update(currentDocRef, { isActive: true });
+                
+                await batch.commit();
+                showMessage('Sucesso!', `"${currentEquipmentId}" agora é o equipamento ativo para este MAC.`, 'success');
+                loadEquipmentData(currentEquipmentId); // Recarrega para atualizar o estado do botão
+            } catch (error) {
+                console.error("Erro ao ativar equipamento:", error);
+                showMessage('Erro', 'Não foi possível ativar o equipamento. Verifique as permissões.', 'error');
+            }
+        }
+
         function listenToLimits(equipmentId) {
             if (!db || !equipmentId) {
                 currentLimits = {}; 
@@ -465,25 +511,28 @@
             });
         }
         
-        function listenToReadings(equipmentId) {
-            if (!db || !equipmentId) {
+        function listenToReadings(equipmentId, macAddress) {
+            const historyBody = document.getElementById('readings-history');
+            if (!db || !macAddress) { 
                 readingsCache = []; 
                 updateDashboard([]);
-                const historyBody = document.getElementById('readings-history');
-                if(historyBody) historyBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Selecione um equipamento para ver as leituras.</td></tr>';
+                if(historyBody) historyBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Selecione um equipamento para ver as leituras.</td></tr>`;
                 return;
             }
-            const readingsQuery = query(collection(db, FIRESTORE_READINGS_COLLECTION_PATH), where("equipamento", "==", equipmentId), orderBy('timestamp', 'desc'), limit(50));
+            
+            const readingsQuery = query(collection(db, FIRESTORE_READINGS_COLLECTION_PATH), where("mac", "==", macAddress), orderBy('timestamp', 'desc'), limit(50));
             
             unsubscribeReadings = onSnapshot(readingsQuery, (snapshot) => {
-                 const historyBody = document.getElementById('readings-history');
                 if (snapshot.empty) {
                     readingsCache = [];
-                    if(historyBody) historyBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada para ${equipmentId}.</td></tr>`;
+                    updateDashboard([]);
+                    if(historyBody) historyBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Nenhuma leitura encontrada para o MAC ${macAddress}.</td></tr>`;
                 } else {
-                    readingsCache = snapshot.docs.map(doc => {
-                        const data = doc.data();
-                        const statusServico = calculateStatus(data.prof_media, currentLimits);
+                    const docsData = snapshot.docs.map(doc => doc.data());
+                     readingsCache = docsData.map((data, index, array) => {
+                        const previousData = index < array.length - 1 ? array[index + 1] : null;
+                        const previousDepth = previousData ? previousData.prof_media : data.prof_media;
+                        const statusServico = calculateStatus(data.prof_media, currentLimits, previousDepth);
                         return { ...data, statusServico };
                     });
                 }
@@ -695,12 +744,25 @@
                 showMessage('Erro', 'Não foi possível enviar o e-mail de redefinição de senha.', 'error');
             }
         }
-
-        function calculateStatus(depth, limits) {
-            const opDepth = limits.paradoCentro - depth;
+        
+        function calculateStatus(depth, limits, previousDepth) {
+            if (!limits || Object.keys(limits).length === 0) return 'Sem Limites';
             if (depth < 0) return 'ERRO SENSOR';
-            if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) return 'Manutenção';
-            if (opDepth >= limits.produtivoMin && opDepth <= limits.produtivoMax) return 'Produtivo';
+            
+            if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) {
+                return 'Manutenção';
+            }
+            
+            const opDepth = limits.paradoCentro - depth;
+            
+            if (opDepth >= limits.produtivoMin && opDepth <= limits.produtivoMax) {
+                return 'Produtivo';
+            }
+            
+            if (previousDepth !== null && depth > previousDepth) {
+                return 'Deslocando';
+            }
+            
             return 'Parado';
         }
 
@@ -710,7 +772,7 @@
             if(!statusCard || !statusText) return;
 
             statusText.textContent = status;
-            const allClasses = ['status-produtivo', 'status-parado', 'status-manutencao', 'status-erro'];
+            const allClasses = ['status-produtivo', 'status-parado', 'status-manutencao', 'status-deslocando', 'status-erro'];
             statusCard.classList.remove(...allClasses);
 
             let statusClassToAdd = '';
@@ -718,15 +780,19 @@
 
             if (status === 'Produtivo') { 
                 statusClassToAdd = 'status-produtivo';
-                animationColor = '#10b981';
+                animationColor = '#40800c';
             } 
             else if (status === 'Parado') { 
                 statusClassToAdd = 'status-parado';
+                animationColor = '#ef4444';
+            }
+            else if (status === 'Deslocando') { 
+                statusClassToAdd = 'status-deslocando';
                 animationColor = '#f59e0b';
             }
             else if (status === 'Manutenção') { 
                 statusClassToAdd = 'status-manutencao';
-                animationColor = '#ef4444';
+                animationColor = '#6366f1';
             }
             else { 
                 statusClassToAdd = 'status-erro';
@@ -735,9 +801,12 @@
             if (statusClassToAdd) statusCard.classList.add(statusClassToAdd);
             statusCard.style.setProperty('--animation-color', animationColor);
             
-            // ATUALIZAÇÃO: Card "last-depth" agora mostra o valor bruto do sensor (Distância Sensor-Solo)
             document.getElementById('last-depth').textContent = `${depth.toFixed(2)} cm`;
+            
+            const opDepth = (currentLimits && currentLimits.paradoCentro) ? currentLimits.paradoCentro - depth : 0;
+            document.getElementById('avg-depth').textContent = `${opDepth.toFixed(2)} cm`;
         }
+
 
         function updateConfigForm(limits) {
             const form = document.getElementById('limits-form');
@@ -790,7 +859,6 @@
 
             if (!hasReadings) {
                 renderStatus('Aguardando', 0);
-                document.getElementById('avg-depth').textContent = `0.0 cm`;
                 updateProductiveChart(0, 0);
                 updateChart([]);
                 if(badge) badge.classList.add('hidden');
@@ -798,7 +866,10 @@
             }
 
             const latestReading = readings[0];
+            const previousReading = readings.length > 1 ? readings[1] : null;
             const latestDepth = latestReading.prof_media || 0;
+            const previousDepth = previousReading ? previousReading.prof_media : latestDepth;
+
             const latestTimestamp = latestReading.timestamp.toDate();
             const isConnected = (Date.now() - latestTimestamp.getTime()) < CONNECTION_TIMEOUT_MS;
 
@@ -812,7 +883,7 @@
                 badge.classList.add('bg-red-500');
             }
 
-            renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
+            renderStatus(calculateStatus(latestDepth, currentLimits, previousDepth), latestDepth);
             
             const productiveCount = readings.filter(r => r.statusServico === 'Produtivo').length;
             const unproductiveCount = readings.length - productiveCount;
@@ -822,9 +893,11 @@
             readingsHistoryBody.innerHTML = '';
             readings.forEach(r => {
                 let statusClass = 'text-gray-500';
-                if (r.statusServico === 'Produtivo') statusClass = 'text-emerald-600 font-medium';
-                else if (r.statusServico === 'Parado') statusClass = 'text-amber-600 font-medium';
-                else if (r.statusServico === 'Manutenção') statusClass = 'text-red-600 font-medium';
+                if (r.statusServico === 'Produtivo') statusClass = 'text-green-700 font-bold';
+                else if (r.statusServico === 'Parado') statusClass = 'text-red-600 font-medium';
+                else if (r.statusServico === 'Deslocando') statusClass = 'text-amber-600 font-medium';
+                else if (r.statusServico === 'Manutenção') statusClass = 'text-indigo-600 font-medium';
+                else if (r.statusServico === 'ERRO SENSOR') statusClass = 'text-slate-500 font-bold';
 
                 const row = document.createElement('tr');
                 row.className = 'table-row';
@@ -857,7 +930,7 @@
                 labels: ['Produtivo', 'Improdutivo'],
                 datasets: [{
                     data: [productiveCount, unproductiveCount],
-                    backgroundColor: [ 'rgb(16, 185, 129)', 'rgb(229, 231, 235)' ],
+                    backgroundColor: [ '#40800c', 'rgb(229, 231, 235)' ],
                     borderColor: '#fff',
                     borderWidth: 2,
                 }]
@@ -889,22 +962,15 @@
                     depthChart.data.datasets.forEach((dataset) => { dataset.data = []; });
                     depthChart.update();
                 }
-                document.getElementById('avg-depth').textContent = `0.00 cm`;
                 return;
             }
 
             const reversedReadings = [...readings].reverse();
             const { paradoCentro: hMesa, produtivoMin, produtivoMax } = currentLimits;
 
-            // --- CÁLCULOS CORRIGIDOS ---
-            const avgRawDepth = readings.reduce((sum, r) => sum + (r.prof_media || 0), 0) / readings.length;
-            const avgOperationDepth = hMesa - avgRawDepth;
-            document.getElementById('avg-depth').textContent = `${avgOperationDepth.toFixed(2)} cm`;
-            
-            // --- LÓGICA DE ESCALA DO EIXO Y ---
             const sensorReadings = reversedReadings.map(r => r.prof_media || 0);
-            const yAxisMax = Math.max(hMesa, ...sensorReadings) + 20; // Padding acima do maior valor
-            const yAxisMin = -(produtivoMax + 20); // Padding abaixo da profundidade máxima
+            const yAxisMax = Math.max(hMesa, ...sensorReadings) + 20; 
+            const yAxisMin = -(produtivoMax + 20); 
 
             const chartData = {
                 labels: reversedReadings.map(r => r.timestamp.toDate()),
@@ -920,7 +986,7 @@
                     {
                         label: 'Distância Sensor-Solo',
                         data: sensorReadings,
-                        borderColor: 'rgb(59, 130, 246)', // Azul
+                        borderColor: 'rgb(59, 130, 246)',
                         borderWidth: 3,
                         tension: 0.4,
                         pointRadius: 0,
@@ -929,7 +995,7 @@
                      {
                         label: 'h_Mesa (Altura Equip.)',
                         data: reversedReadings.map(() => hMesa),
-                        borderColor: 'rgb(249, 115, 22)', // Laranja
+                        borderColor: 'rgb(249, 115, 22)',
                         borderWidth: 2.5,
                         borderDash: [8, 4],
                         pointRadius: 0,
@@ -945,7 +1011,7 @@
                         segment: {
                             borderColor: ctx => {
                                 const yValue = ctx.p1.parsed.y;
-                                const depth = -yValue; // O valor é negativo, então invertemos
+                                const depth = -yValue; 
                                 if (depth >= produtivoMin && depth <= produtivoMax) {
                                     return '#40800c'; // Verde
                                 }
@@ -1637,7 +1703,7 @@
                     <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${firstVisibleTab || ''}">
                         ${canSee('implementos') ? `<button class="tab-button ${firstVisibleTab === 'implementos' ? 'active' : ''}" data-tab="implementos">Implementos</button>` : ''}
                         ${canSee('fertirrigacao') ? `<button class="tab-button ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
-                        ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Limites</button>` : ''}
+                        ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Equipamentos</button>` : ''}
                         ${profile.role === 'Master' ? `<button class="tab-button ${firstVisibleTab === 'cadastro' ? 'active' : ''}" data-tab="cadastro">Cadastro</button>` : ''}
                     </nav>
                 </header>
@@ -1677,7 +1743,7 @@
                 
                 <div id="avg-depth-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center">
-                        <p class="data-label">Prof. Operação Média</p>
+                        <p class="data-label">Prof. de Operação</p>
                         <div id="avg-depth-skeleton" class="mt-1 h-9 w-3/4 rounded-md bg-gray-200 animate-pulse"></div>
                         <p class="data-value text-purple-700 hidden" id="avg-depth">0.0 cm</p>
                     </div>
@@ -1708,14 +1774,14 @@
                 <div class="flex items-center gap-2 mb-4">
                      <h2 class="text-2xl font-bold text-gray-800">Gráfico de Profundidade (Últimas Leituras)</h2>
                      <div class="relative group">
-                        <span class="material-symbols-outlined text-gray-400 cursor-pointer">info</span>
-                        <div class="absolute bottom-full mb-2 w-72 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 hidden group-hover:block z-10">
-                            <strong class="font-bold text-amber-400">Linha Laranja (h_Mesa):</strong> Altura do equipamento em repouso.<br>
-                            <strong class="font-bold text-blue-400">Linha Azul:</strong> Distância do sensor ao solo (leitura bruta).<br>
-                            <strong class="font-bold text-gray-400">Linha Preta (Solo):</strong> Nível do chão (referência zero).<br>
-                            <strong class="font-bold">Linha Inferior:</strong> Profundidade de operação (h_Mesa - Leitura do Sensor). Fica <span class="text-green-400">verde</span> quando produtivo e <span class="text-yellow-400">amarela</span> quando parado/em deslocamento.
-                        </div>
-                    </div>
+                         <span class="material-symbols-outlined text-gray-400 cursor-pointer">info</span>
+                         <div class="absolute bottom-full mb-2 w-72 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 hidden group-hover:block z-10">
+                             <strong class="font-bold text-amber-400">Linha Laranja (h_Mesa):</strong> Altura do equipamento em repouso.<br>
+                             <strong class="font-bold text-blue-400">Linha Azul:</strong> Distância do sensor ao solo (leitura bruta).<br>
+                             <strong class="font-bold text-gray-400">Linha Preta (Solo):</strong> Nível do chão (referência zero).<br>
+                             <strong class="font-bold">Linha Inferior:</strong> Profundidade de operação (h_Mesa - Leitura do Sensor). Fica <span class="text-green-400">verde</span> quando produtivo e <span class="text-yellow-400">amarela</span> quando parado/em deslocamento.
+                         </div>
+                     </div>
                 </div>
 
                 <div id="depth-chart-container" class="bg-slate-800 p-6 rounded-xl shadow-2xl relative">
@@ -1728,7 +1794,7 @@
                 <div class="text-center text-xs text-gray-500 mt-2">
                     <span class="font-semibold">Limites Atuais:</span>
                     <span class="text-emerald-600 mx-2">Produtivo: <strong id="limit-produtivo">-- / -- cm</strong></span> | 
-                    <span class="text-red-600 ml-2">Manutenção: <strong id="limit-parado">-- &pm; -- cm</strong></span>
+                    <span class="text-indigo-600 ml-2">Manutenção: <strong id="limit-parado">-- &pm; -- cm</strong></span>
                 </div>
             </div>
             
@@ -1888,7 +1954,7 @@
                             <select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select>
                         </div>
                     </div>
-                     <p class="text-sm text-gray-500 mb-6">Selecione um equipamento para editar seu nome e limites. O MAC Address é fixo e não pode ser alterado.</p>
+                     <p class="text-sm text-gray-500 mb-6">Selecione um equipamento para editar seus limites. Para torná-lo ativo para o ESP32, clique no botão 'Ativar'.</p>
                     <form id="limits-form">
                         <div class="mb-4">
                             <label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento (ID)</label>
@@ -1899,8 +1965,11 @@
                             <input type="text" id="equipment-mac" class="mt-1 block w-full rounded-md bg-gray-100 cursor-not-allowed font-mono" readonly>
                         </div>
                         <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-red-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                        <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Alterações</button>
+                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-indigo-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                        <div class="flex gap-4">
+                            <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Alterações</button>
+                            <button type="button" id="activate-equipment-btn" class="w-full py-3 px-4 rounded-md shadow-lg text-white hidden">Ativar</button>
+                        </div>
                     </form>
                 </div>
                 <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
