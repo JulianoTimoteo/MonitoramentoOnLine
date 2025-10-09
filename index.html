@@ -57,6 +57,7 @@
         .table-row:nth-child(even) { background-color: #f3f4f6; }
 
         .status-produtivo { border-color: #40800c !important; color: #40800c !important; }
+        /* A classe 'status-parado' agora representa 'Sem Operação' */
         .status-parado { border-color: #ef4444 !important; color: #dc2626 !important; }
         .status-deslocando { border-color: #f59e0b !important; color: #d97706 !important; }
         .status-manutencao { border-color: #6366f1 !important; color: #4f46e5 !important; }
@@ -159,14 +160,12 @@
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
-        // --- VARIÁVEIS GLOBAIS PARA FERTIRRIGAÇÃO ---
         let lagoasChart = null;
         let fertirrigacaoInterval = null;
         let fertirrigacaoSubTabInterval = null;
         let lagoonsData = {};
         let totalVolumeIn = 0;
         let totalVolumeOut = 0;
-        // -------------------------------------------
 
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('login-screen').innerHTML = getLoginHTML();
@@ -211,7 +210,6 @@
             if (canManageLimits) {
                 document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
                 document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
-                // Adicionando o listener para o novo botão 'Ativar'
                 const activateBtn = document.getElementById('activate-equipment-btn');
                 if (activateBtn) activateBtn.addEventListener('click', handleActivateEquipment);
             }
@@ -250,7 +248,7 @@
                         const data = doc.data();
                         idList.push(equipmentId);
                         if (!firstEquipmentId) firstEquipmentId = equipmentId;
-                        const activeMarker = data.isActive ? ' ✔️' : ''; // Adiciona um check se ativo
+                        const activeMarker = data.isActive ? ' ✔️' : '';
                         const optionHTML = `<option value="${equipmentId}">${equipmentId}${activeMarker}</option>`;
                         implementosSelect.innerHTML += optionHTML;
                         limitesSelect.innerHTML += optionHTML;
@@ -368,7 +366,7 @@
                     createdAt: serverTimestamp()
                 };
                 await setDoc(nameRef, defaultLimits);
-                showMessage('Sucesso!', `Equipamento "${newName}" vinculado. Vá para a aba Limites para ativá-lo.`, 'success');
+                showMessage('Sucesso!', `Equipamento "${newName}" vinculado. Vá para a aba Equipamentos para ativá-lo.`, 'success');
                 form.reset();
             } catch (error) {
                 console.error("Erro ao vincular equipamento:", error);
@@ -478,7 +476,7 @@
                 
                 await batch.commit();
                 showMessage('Sucesso!', `"${currentEquipmentId}" agora é o equipamento ativo para este MAC.`, 'success');
-                loadEquipmentData(currentEquipmentId); // Recarrega para atualizar o estado do botão
+                loadEquipmentData(currentEquipmentId);
             } catch (error) {
                 console.error("Erro ao ativar equipamento:", error);
                 showMessage('Erro', 'Não foi possível ativar o equipamento. Verifique as permissões.', 'error');
@@ -745,26 +743,25 @@
             }
         }
         
-        function calculateStatus(depth, limits, previousDepth) {
-            if (!limits || Object.keys(limits).length === 0) return 'Sem Limites';
+        function calculateStatus(depth, limits) {
+            if (!limits || !limits.paradoCentro) return 'Sem Limites';
             if (depth < 0) return 'ERRO SENSOR';
             
-            if (depth >= (limits.paradoCentro - limits.paradoTolerancia) && depth <= (limits.paradoCentro + limits.paradoTolerancia)) {
-                return 'Manutenção';
-            }
-            
             const opDepth = limits.paradoCentro - depth;
-            
+
             if (opDepth >= limits.produtivoMin && opDepth <= limits.produtivoMax) {
                 return 'Produtivo';
             }
             
-            if (previousDepth !== null && depth > previousDepth) {
+            // Regra atualizada: profundidade de operação negativa indica deslocamento
+            if (opDepth < 0) {
                 return 'Deslocando';
             }
             
-            return 'Parado';
+            // Tudo o que sobra é considerado "Sem Operação"
+            return 'Sem Operação';
         }
+
 
         function renderStatus(status, depth) {
             const statusCard = document.getElementById('current-status-card');
@@ -782,19 +779,17 @@
                 statusClassToAdd = 'status-produtivo';
                 animationColor = '#40800c';
             } 
-            else if (status === 'Parado') { 
-                statusClassToAdd = 'status-parado';
-                animationColor = '#ef4444';
-            }
             else if (status === 'Deslocando') { 
                 statusClassToAdd = 'status-deslocando';
                 animationColor = '#f59e0b';
             }
-            else if (status === 'Manutenção') { 
-                statusClassToAdd = 'status-manutencao';
-                animationColor = '#6366f1';
+            // Agrupando "Sem Operação" e outros estados
+            else if (status === 'Sem Operação' || status === 'Parado' || status === 'Manutenção') {
+                statusText.textContent = 'Sem Operação'; // Garante que o texto seja consistente
+                statusClassToAdd = 'status-parado'; // Usa o estilo de "parado" (vermelho)
+                animationColor = '#ef4444';
             }
-            else { 
+            else { // ERRO SENSOR, Sem Limites, etc.
                 statusClassToAdd = 'status-erro';
             }
 
@@ -836,12 +831,14 @@
                 if (valueEl) valueEl.classList.toggle('hidden', !showData);
             });
 
-            const productiveTextEl = document.getElementById('productive-percent-text');
-            if (productiveTextEl) {
-                const skeleton = productiveTextEl.querySelector('#productive-percent-skeleton');
-                const span = productiveTextEl.querySelector('span');
+            const productiveCard = document.getElementById('productive-percent-card');
+            if (productiveCard) {
+                const skeleton = productiveCard.querySelector('#productive-percent-skeleton');
+                const canvas = productiveCard.querySelector('canvas');
+                const legend = productiveCard.querySelector('#productive-chart-legend');
                 if (skeleton) skeleton.classList.toggle('hidden', showData);
-                if (span) span.classList.toggle('hidden', !showData);
+                if (canvas) canvas.classList.toggle('hidden', !showData);
+                if (legend) legend.classList.toggle('hidden', !showData);
             }
         }
         
@@ -859,17 +856,14 @@
 
             if (!hasReadings) {
                 renderStatus('Aguardando', 0);
-                updateProductiveChart(0, 0);
+                updateProductiveChart([]);
                 updateChart([]);
                 if(badge) badge.classList.add('hidden');
                 return;
             }
 
             const latestReading = readings[0];
-            const previousReading = readings.length > 1 ? readings[1] : null;
             const latestDepth = latestReading.prof_media || 0;
-            const previousDepth = previousReading ? previousReading.prof_media : latestDepth;
-
             const latestTimestamp = latestReading.timestamp.toDate();
             const isConnected = (Date.now() - latestTimestamp.getTime()) < CONNECTION_TIMEOUT_MS;
 
@@ -883,20 +877,18 @@
                 badge.classList.add('bg-red-500');
             }
 
-            renderStatus(calculateStatus(latestDepth, currentLimits, previousDepth), latestDepth);
+            // A função calculateStatus agora só precisa da leitura atual e dos limites
+            renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
             
-            const productiveCount = readings.filter(r => r.statusServico === 'Produtivo').length;
-            const unproductiveCount = readings.length - productiveCount;
-            updateProductiveChart(productiveCount, unproductiveCount);
+            updateProductiveChart(readings);
 
             const readingsHistoryBody = document.getElementById('readings-history');
             readingsHistoryBody.innerHTML = '';
             readings.forEach(r => {
                 let statusClass = 'text-gray-500';
                 if (r.statusServico === 'Produtivo') statusClass = 'text-green-700 font-bold';
-                else if (r.statusServico === 'Parado') statusClass = 'text-red-600 font-medium';
+                else if (r.statusServico === 'Sem Operação') statusClass = 'text-red-600 font-medium'; // Agrupado
                 else if (r.statusServico === 'Deslocando') statusClass = 'text-amber-600 font-medium';
-                else if (r.statusServico === 'Manutenção') statusClass = 'text-indigo-600 font-medium';
                 else if (r.statusServico === 'ERRO SENSOR') statusClass = 'text-slate-500 font-bold';
 
                 const row = document.createElement('tr');
@@ -908,33 +900,51 @@
             updateChart(readings);
         }
 
-        function updateProductiveChart(productiveCount, unproductiveCount) {
+        function updateProductiveChart(readings) {
             const ctxEl = document.getElementById('productive-chart');
-            if (!ctxEl) return;
+            const legendEl = document.getElementById('productive-chart-legend');
+            if (!ctxEl || !legendEl) return;
             const ctx = ctxEl.getContext('2d');
-            const total = productiveCount + unproductiveCount;
-            const percentage = total > 0 ? (productiveCount / total) * 100 : 0;
+            
+            let productiveCount = 0;
+            let movingCount = 0;
+            let noOpCount = 0;
 
-            const textEl = document.getElementById('productive-percent-text');
-            if (textEl) {
-                const skeleton = textEl.querySelector('#productive-percent-skeleton');
-                const span = textEl.querySelector('span');
-                if(skeleton) skeleton.classList.add('hidden');
-                if(span) {
-                    span.classList.remove('hidden');
-                    span.textContent = `${percentage.toFixed(0)}%`;
+            readings.forEach(r => {
+                const status = r.statusServico;
+                if (status === 'Produtivo') {
+                    productiveCount++;
+                } else if (status === 'Deslocando') {
+                    movingCount++;
+                } else if (status === 'Parado' || status === 'Manutenção' || status === 'Sem Operação' || status === 'ERRO SENSOR') {
+                    noOpCount++;
                 }
-            }
+            });
 
             const chartData = {
-                labels: ['Produtivo', 'Improdutivo'],
+                labels: ['Produtivo', 'Deslocamento', 'Sem Operação'],
                 datasets: [{
-                    data: [productiveCount, unproductiveCount],
-                    backgroundColor: [ '#40800c', 'rgb(229, 231, 235)' ],
-                    borderColor: '#fff',
+                    data: [productiveCount, movingCount, noOpCount],
+                    backgroundColor: [ '#40800c', '#f59e0b', '#ef4444' ],
+                    borderColor: 'white',
                     borderWidth: 2,
                 }]
             };
+
+             legendEl.innerHTML = `
+                <div class="flex items-center">
+                    <span class="h-3 w-3 rounded-full mr-2" style="background-color: #40800c;"></span>
+                    <span>Produtivo</span>
+                </div>
+                <div class="flex items-center">
+                    <span class="h-3 w-3 rounded-full mr-2" style="background-color: #f59e0b;"></span>
+                    <span>Desloc.</span>
+                </div>
+                <div class="flex items-center">
+                    <span class="h-3 w-3 rounded-full mr-2" style="background-color: #ef4444;"></span>
+                    <span>S/ Oper.</span>
+                </div>
+            `;
 
             if (productiveChart) {
                 productiveChart.data = chartData;
@@ -944,8 +954,22 @@
                     type: 'doughnut', data: chartData,
                     options: {
                         responsive: true, maintainAspectRatio: false,
-                        cutout: '75%',
-                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                        cutout: '70%',
+                        plugins: { 
+                            legend: { display: false }, 
+                            tooltip: { 
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.label || '';
+                                        if (label) { label += ': '; }
+                                        const value = context.parsed;
+                                        const total = context.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                        const percentage = total > 0 ? (value / total * 100).toFixed(1) + '%' : '0%';
+                                        return `${label} ${value} leituras (${percentage})`;
+                                    }
+                                }
+                            } 
+                        }
                     }
                 });
             }
@@ -978,7 +1002,7 @@
                     {
                         label: 'Nível do Solo',
                         data: reversedReadings.map(() => 0),
-                        borderColor: 'rgb(0, 0, 0)',
+                        borderColor: '#7c3aed', // Roxo
                         borderWidth: 2,
                         pointRadius: 0,
                         fill: false,
@@ -1004,6 +1028,7 @@
                     {
                         label: 'Profundidade de Operação',
                         data: reversedReadings.map(r => - (hMesa - (r.prof_media || 0))),
+                        borderColor: '#40800c', // Verde para a legenda
                         borderWidth: 3,
                         tension: 0.4,
                         pointRadius: 0,
@@ -1024,6 +1049,7 @@
 
             if (depthChart) {
                 depthChart.data = chartData;
+                depthChart.options.plugins.title.text = `Análise de Profundidade - ${currentEquipmentId || 'N/A'}`;
                 depthChart.options.scales.y.max = yAxisMax;
                 depthChart.options.scales.y.min = yAxisMin;
                 depthChart.update();
@@ -1049,10 +1075,34 @@
                             }
                         },
                         plugins: {
+                            title: {
+                                display: true,
+                                text: `Análise de Profundidade - ${currentEquipmentId || 'N/A'}`,
+                                color: 'white',
+                                font: { size: 18, weight: 'bold'},
+                                padding: { bottom: 20 },
+                                align: 'start'
+                            },
+                            subtitle: {
+                                display: true,
+                                text: 'Visualização da altura e profundidade da operação.',
+                                color: 'rgb(156 163 175)',
+                                font: { size: 12 },
+                                padding: { bottom: 25 },
+                                align: 'start'
+                            },
                             legend: {
                                 display: true,
                                 position: 'top',
+                                align: 'end',
                                 labels: { color: 'rgb(203 213 225)' }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) {
+                                        return `[${currentEquipmentId || 'N/A'}] ${context[0].label}`;
+                                    }
+                                }
                             }
                         }
                     }
@@ -1751,14 +1801,12 @@
 
                 <div id="productive-percent-card" class="metric-card animated-border h-52">
                     <div class="card-content-wrapper h-full flex flex-col justify-center">
-                        <p class="data-label">Percentual Produtivo</p>
-                        <div class="relative mx-auto mt-2" style="width: 120px; height: 120px;">
-                            <canvas id="productive-chart"></canvas>
-                            <div id="productive-percent-text" class="absolute inset-0 flex items-center justify-center text-3xl font-extrabold text-teal-700">
-                                <div id="productive-percent-skeleton" class="h-9 w-2/4 rounded-md bg-gray-200 animate-pulse"></div>
-                                <span class="hidden">0%</span>
-                            </div>
+                        <p class="data-label text-center">Status (50 Leituras)</p>
+                        <div class="relative mx-auto" style="width: 110px; height: 110px;">
+                            <div id="productive-percent-skeleton" class="h-full w-full rounded-full bg-gray-200 animate-pulse"></div>
+                            <canvas id="productive-chart" class="hidden"></canvas>
                         </div>
+                        <div id="productive-chart-legend" class="flex justify-center gap-4 mt-3 text-xs"></div>
                     </div>
                 </div>
 
@@ -1771,36 +1819,34 @@
             </div>
 
             <div class="mb-10">
-                <div class="flex items-center gap-2 mb-4">
+                 <div class="flex items-center gap-2 mb-4">
                      <h2 class="text-2xl font-bold text-gray-800">Gráfico de Profundidade (Últimas Leituras)</h2>
                      <div class="relative group">
                          <span class="material-symbols-outlined text-gray-400 cursor-pointer">info</span>
                          <div class="absolute bottom-full mb-2 w-72 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 hidden group-hover:block z-10">
                              <strong class="font-bold text-amber-400">Linha Laranja (h_Mesa):</strong> Altura do equipamento em repouso.<br>
                              <strong class="font-bold text-blue-400">Linha Azul:</strong> Distância do sensor ao solo (leitura bruta).<br>
-                             <strong class="font-bold text-gray-400">Linha Preta (Solo):</strong> Nível do chão (referência zero).<br>
-                             <strong class="font-bold">Linha Inferior:</strong> Profundidade de operação (h_Mesa - Leitura do Sensor). Fica <span class="text-green-400">verde</span> quando produtivo e <span class="text-yellow-400">amarela</span> quando parado/em deslocamento.
+                             <strong class="font-bold text-purple-400">Linha Roxa (Solo):</strong> Nível do chão (referência zero).<br>
+                             <strong class="font-bold">Linha Inferior:</strong> Profundidade de operação (h_Mesa - Leitura). Fica <span class="text-green-400">verde</span> quando produtivo e <span class="text-yellow-400">amarela</span> quando não.
                          </div>
                      </div>
                 </div>
 
-                <div id="depth-chart-container" class="bg-slate-800 p-6 rounded-xl shadow-2xl relative">
-                     <div class="absolute top-4 left-6">
-                         <h3 class="text-xl font-bold text-white">Análise de Profundidade</h3>
-                         <p class="text-sm text-slate-400">Visualização da altura e profundidade da operação.</p>
-                     </div>
-                    <canvas id="depth-chart" style="height: 350px;"></canvas>
+                <div class="bg-slate-800 p-6 rounded-xl shadow-2xl relative">
+                    <div class="pt-8">
+                      <canvas id="depth-chart" style="height: 350px;"></canvas>
+                    </div>
                 </div>
                 <div class="text-center text-xs text-gray-500 mt-2">
                     <span class="font-semibold">Limites Atuais:</span>
                     <span class="text-emerald-600 mx-2">Produtivo: <strong id="limit-produtivo">-- / -- cm</strong></span> | 
-                    <span class="text-indigo-600 ml-2">Manutenção: <strong id="limit-parado">-- &pm; -- cm</strong></span>
+                    <span class="text-indigo-600 ml-2">Sem Operação: <strong id="limit-parado">-- &pm; -- cm</strong></span>
                 </div>
             </div>
             
             <div>
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold text-gray-800">Últimas Leituras (Firestore Log)</h2>
+                    <h2 class="text-2xl font-bold text-gray-800">Últimas Leituras</h2>
                 </div>
                 <div class="overflow-x-auto rounded-lg shadow-xl">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -1948,7 +1994,7 @@
             <div class="max-w-2xl mx-auto space-y-10">
                 <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
                     <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-3xl font-bold text-gray-900">Configurar Limites</h2>
+                        <h2 class="text-3xl font-bold text-gray-900">Configurar Equipamento</h2>
                         <div class="flex items-center space-x-2">
                             <label for="equipment-select-limites" class="text-sm font-medium">Equipamento:</label>
                             <select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select>
@@ -2058,3 +2104,4 @@
     </script>
 </body>
 </html>
+
