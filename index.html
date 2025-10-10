@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.7</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v8.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -17,6 +17,7 @@
             --color-fertirrigacao: #2563eb; /* Azul */
             --color-limites: #d97706; /* Âmbar */
             --color-cadastro: #7c3aed; /* Roxo */
+            --color-historico: #475569; /* Cinza Ardósia */
         }
         body { font-family: 'Inter', sans-serif; background-color: var(--color-background); }
         
@@ -47,6 +48,7 @@
         #tabs-container.fertirrigacao .tab-button[data-tab="fertirrigacao"].active { border-color: var(--color-fertirrigacao); color: var(--color-fertirrigacao); }
         #tabs-container.limites .tab-button[data-tab="limites"].active { border-color: var(--color-limites); color: var(--color-limites); }
         #tabs-container.cadastro .tab-button[data-tab="cadastro"].active { border-color: var(--color-cadastro); color: var(--color-cadastro); }
+        #tabs-container.historico .tab-button[data-tab="historico"].active { border-color: var(--color-historico); color: var(--color-historico); }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
@@ -67,23 +69,21 @@
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
 
-        /* Estilos atualizados para a aba Fertirrigação */
         .fert-sub-tab {
-            cursor: pointer;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            transition: all 0.2s;
-            font-weight: 700; /* bold */
-            background-color: #9CA3AF; /* gray-400 */
-            color: white;
+            cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem;
+            transition: all 0.2s; font-weight: 700;
+            background-color: #D1D5DB; /* gray-300 */
+            color: #4B5563; /* gray-600 */
         }
         .fert-sub-tab:hover {
-            background-color: #6B7280; /* gray-500 */
+             background-color: #9CA3AF; /* gray-400 */
+             color: white;
         }
         .fert-sub-tab.active {
-            background-color: var(--color-fertirrigacao); /* Azul */
+            background-color: var(--color-fertirrigacao);
             color: white;
         }
+
         .fert-sub-content { display: none; animation: fadeIn 0.5s; }
         .fert-sub-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -135,7 +135,6 @@
         .login-card-border-top { border-top: 8px solid var(--animation-color, var(--color-primary)); padding: 0; }
         .login-card-border-top .card-content-wrapper { padding: 2rem; }
         
-        /* Novos estilos para a aba Equipamentos */
         .equip-sub-tab { cursor: pointer; color: #6b7280; border-bottom: 3px solid transparent; transition: all 0.2s; padding: 0.5rem 1rem; }
         .equip-sub-tab.active { color: var(--color-limites); border-color: var(--color-limites); font-weight: 600; }
         .equip-sub-content.hidden { display: none; }
@@ -172,6 +171,7 @@
         let readingsCache = [];
         let depthChart = null;
         let productiveChart = null;
+        let historicoChart = null;
         let currentLimits = { produtivoMin: 10.0, produtivoMax: 50.0, paradoCentro: 70.0, paradoTolerancia: 5.0 };
         const CONNECTION_TIMEOUT_MS = 5 * 60 * 1000;
         
@@ -180,7 +180,6 @@
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
-        // State for Fertirrigation Tab
         let lagoasChart = null;
         let fertirrigacaoInterval = null;
         let fertirrigacaoSubTabInterval = null;
@@ -188,7 +187,6 @@
         let totalVolumeIn = 0;
         let totalVolumeOut = 0;
 
-        // State for new Equipamentos Tab
         let allEquipment = [];
         let currentPage = 1;
         const itemsPerPage = 5;
@@ -224,6 +222,7 @@
                 if (depthChart) { depthChart.destroy(); depthChart = null; }
                 if (productiveChart) { productiveChart.destroy(); productiveChart = null; }
                 if (lagoasChart) { lagoasChart.destroy(); lagoasChart = null; }
+                if (historicoChart) { historicoChart.destroy(); historicoChart = null; }
                 signOut(auth);
             });
             document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
@@ -231,6 +230,7 @@
             
             setupImplementosSelector();
             setupEquipamentosTab();
+            setupHistoricoTab();
 
             if (currentUserProfile.role === 'Master') {
                 document.getElementById('add-user-form')?.addEventListener('submit', handleAddUser);
@@ -248,22 +248,27 @@
                 onSnapshot(q, (snapshot) => {
                     const previouslySelectedId = currentEquipmentId; 
                     implementosSelect.innerHTML = ''; 
-
                     let firstEquipmentId = null;
                     let idList = [];
-                    if (snapshot.empty) {
-                        implementosSelect.innerHTML = '<option value="">Nenhum equipamento cadastrado</option>';
+                    
+                    const activeEquipments = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        if (data.isActive) {
+                           activeEquipments.push({ id: doc.id, ...data });
+                        }
+                    });
+
+                    if (activeEquipments.length === 0) {
+                        implementosSelect.innerHTML = '<option value="">Nenhum equipamento ativo</option>';
                         loadEquipmentData(null);
                         return;
                     }
 
-                    snapshot.forEach(doc => {
-                        const equipmentId = doc.id;
-                        const data = doc.data();
-                        idList.push(equipmentId);
-                        if (!firstEquipmentId) firstEquipmentId = equipmentId;
-                        const activeMarker = data.isActive ? ' ✔️' : '';
-                        const optionHTML = `<option value="${equipmentId}">${equipmentId}${activeMarker}</option>`;
+                    activeEquipments.sort((a, b) => a.id.localeCompare(b.id)).forEach(equip => {
+                        idList.push(equip.id);
+                        if (!firstEquipmentId) firstEquipmentId = equip.id;
+                        const optionHTML = `<option value="${equip.id}">${equip.id}</option>`;
                         implementosSelect.innerHTML += optionHTML;
                     });
                     
@@ -317,12 +322,7 @@
             }
         }
         
-        async function handleVincularEquipamento(e) {
-            e.preventDefault();
-            const form = e.target;
-            const newMac = form.elements['new-mac'].value.trim().toUpperCase();
-            const newName = form.elements['new-equipment-name'].value.trim();
-
+        async function handleVincularEquipamento(newName, newMac) {
             if (!newMac || !newName) {
                 return showMessage('Erro', 'MAC Address e Nome do Equipamento são obrigatórios.', 'error');
             }
@@ -346,8 +346,9 @@
                 };
                 await setDoc(nameRef, defaultLimits);
                 showMessage('Sucesso!', `Equipamento "${newName}" vinculado com sucesso.`, 'success');
-                form.reset();
-                renderEquipamentosList(); // Refresh the list
+                document.getElementById('vincular-modal')?.remove();
+                loadAndRenderUnlinkedDevices();
+                renderEquipamentosList(); 
             } catch (error) {
                 console.error("Erro ao vincular equipamento:", error);
                 showMessage('Erro', 'Não foi possível criar o novo vínculo.', 'error');
@@ -1018,7 +1019,7 @@
                                     unit: 'minute', 
                                     tooltipFormat: 'dd/MM/yy HH:mm:ss',
                                     displayFormats: {
-                                        minute: 'HH:mm' // Formato 24h para o eixo
+                                        minute: 'HH:mm'
                                     }
                                 },
                                 grid: { display: false },
@@ -1434,10 +1435,12 @@
                     e.target.classList.add('active');
                     document.querySelectorAll('.equip-sub-content').forEach(c => c.classList.add('hidden'));
                     document.getElementById(`${tabId}-content`).classList.remove('hidden');
+                    if (tabId === 'vincular-equip') {
+                        loadAndRenderUnlinkedDevices();
+                    }
                 }
             });
             
-            document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
             document.getElementById('equipment-search-input')?.addEventListener('input', () => {
                 currentPage = 1;
                 renderEquipamentosList();
@@ -1447,6 +1450,7 @@
             equipmentListBody?.addEventListener('click', e => {
                 const editBtn = e.target.closest('.edit-btn');
                 const activateBtn = e.target.closest('.activate-btn');
+                const deactivateBtn = e.target.closest('.deactivate-btn');
                 
                 if (editBtn) {
                     const id = editBtn.dataset.id;
@@ -1458,10 +1462,101 @@
                     const mac = activateBtn.dataset.mac;
                     handleActivateEquipment(id, mac);
                 }
+                
+                if (deactivateBtn) {
+                    const id = deactivateBtn.dataset.id;
+                    handleDeactivateEquipment(id);
+                }
+            });
+
+            document.getElementById('unlinked-devices-list')?.addEventListener('click', e => {
+                 const vincularBtn = e.target.closest('.vincular-btn');
+                 if(vincularBtn) {
+                     const mac = vincularBtn.dataset.mac;
+                     openVincularModal(mac);
+                 }
             });
 
             renderEquipamentosList();
         }
+
+        async function handleDeactivateEquipment(equipmentId) {
+            showConfirmationModal(`Tem certeza que deseja desativar o equipamento "${equipmentId}"? Ele deixará de ser o ativo para o seu MAC address.`, async () => {
+                if (!equipmentId) {
+                    return showMessage('Erro', 'Nenhum equipamento selecionado para desativar.', 'error');
+                }
+                
+                try {
+                    const docRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, equipmentId);
+                    await updateDoc(docRef, { isActive: false });
+                    
+                    showMessage('Sucesso!', `"${equipmentId}" foi desativado.`, 'success');
+                    renderEquipamentosList();
+                } catch (error) {
+                    console.error("Erro ao desativar equipamento:", error);
+                    showMessage('Erro', 'Não foi possível desativar o equipamento.', 'error');
+                }
+            });
+        }
+
+        async function loadAndRenderUnlinkedDevices() {
+            const listBody = document.getElementById('unlinked-devices-list');
+            if (!listBody) return;
+            listBody.innerHTML = `<tr><td colspan="2" class="p-4 text-center text-gray-500">Buscando novos dispositivos...</td></tr>`;
+
+            try {
+                const limitsSnapshot = await getDocs(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH));
+                const linkedMacs = new Set(limitsSnapshot.docs.map(doc => doc.data().mac));
+
+                const readingsQuery = query(collection(db, FIRESTORE_READINGS_COLLECTION_PATH), orderBy('timestamp', 'desc'), limit(200));
+                const readingsSnapshot = await getDocs(readingsQuery);
+                const foundMacs = new Set(readingsSnapshot.docs.map(doc => doc.data().mac));
+
+                const unlinkedMacs = [];
+                foundMacs.forEach(mac => {
+                    if (mac && !linkedMacs.has(mac)) {
+                        unlinkedMacs.push(mac);
+                    }
+                });
+
+                if (unlinkedMacs.length === 0) {
+                    listBody.innerHTML = `<tr><td colspan="2" class="p-4 text-center text-gray-500">Nenhum dispositivo novo detectado nas leituras recentes.</td></tr>`;
+                } else {
+                    listBody.innerHTML = unlinkedMacs.map(mac => `
+                        <tr class="border-b">
+                            <td class="p-3 font-mono text-gray-700">${mac}</td>
+                            <td class="p-3 text-center">
+                                <button data-mac="${mac}" class="vincular-btn bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-md text-xs">Vincular</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch(error) {
+                console.error("Erro ao buscar dispositivos não vinculados:", error);
+                listBody.innerHTML = `<tr><td colspan="2" class="p-4 text-center text-red-500">Erro ao buscar dispositivos.</td></tr>`;
+            }
+        }
+
+        function openVincularModal(mac) {
+            const modalPlaceholder = document.getElementById('modal-placeholder');
+            modalPlaceholder.innerHTML = getVincularModalHTML(mac);
+
+            const modal = document.getElementById('vincular-modal');
+            modal.classList.remove('hidden');
+
+            const closeModal = () => modal.remove();
+            modal.addEventListener('click', e => {
+                if (e.target.id === 'vincular-modal' || e.target.closest('.close-modal-btn')) {
+                    closeModal();
+                }
+            });
+            modal.querySelector('#vincular-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const newName = e.target.elements['new-equipment-name-modal'].value.trim();
+                handleVincularEquipamento(newName, mac);
+            });
+        }
+
 
         async function renderEquipamentosList() {
             try {
@@ -1500,8 +1595,8 @@
                     ? `<span class="bg-emerald-100 text-emerald-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Ativo</span>`
                     : `<span class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Inativo</span>`;
                 
-                const activateButton = equip.isActive
-                    ? `<button class="bg-gray-300 text-gray-500 px-3 py-1 rounded-md text-xs cursor-not-allowed" disabled>Ativo</button>`
+                const actionButton = equip.isActive
+                    ? `<button data-id="${equip.id}" class="deactivate-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-md text-xs">Desativar</button>`
                     : `<button data-id="${equip.id}" data-mac="${equip.mac}" class="activate-btn bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-md text-xs">Ativar</button>`;
                 
                 return `
@@ -1515,7 +1610,7 @@
                                 <button data-id="${equip.id}" class="edit-btn text-gray-500 hover:text-amber-600 p-1 rounded-full">
                                     <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
                                 </button>
-                                ${activateButton}
+                                ${actionButton}
                             </div>
                         </td>
                     </tr>
@@ -1578,6 +1673,184 @@
         
         // ====================================================================
         // FIM DA LÓGICA DA ABA EQUIPAMENTOS
+        // ====================================================================
+
+        // ====================================================================
+        // LÓGICA DA ABA HISTÓRICO
+        // ====================================================================
+        function setupHistoricoTab() {
+            populateHistoricoSelector();
+            document.getElementById('search-historico-btn')?.addEventListener('click', handleHistoricoSearch);
+        }
+
+        async function populateHistoricoSelector() {
+            const selector = document.getElementById('equipment-select-historico');
+            if(!selector) return;
+
+            try {
+                const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), orderBy('equipamento'));
+                const snapshot = await getDocs(q);
+                
+                if (snapshot.empty) {
+                    selector.innerHTML = '<option value="">Nenhum equipamento encontrado</option>';
+                    return;
+                }
+
+                let optionsHTML = '<option value="">-- Selecione um equipamento --</option>';
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const status = data.isActive ? 'Ativo' : 'Inativo';
+                    optionsHTML += `<option value="${doc.id}">${doc.id} (${status})</option>`;
+                });
+                selector.innerHTML = optionsHTML;
+            } catch (error) {
+                console.error("Erro ao popular seletor de histórico:", error);
+                selector.innerHTML = '<option value="">Erro ao carregar</option>';
+            }
+        }
+        
+        async function handleHistoricoSearch() {
+            const equipmentId = document.getElementById('equipment-select-historico').value;
+            const startDateStr = document.getElementById('date-start-historico').value;
+            const endDateStr = document.getElementById('date-end-historico').value;
+
+            if(!equipmentId || !startDateStr || !endDateStr) {
+                return showMessage('Campos incompletos', 'Por favor, selecione um equipamento e um intervalo de datas.', 'warning');
+            }
+
+            const startDate = new Date(startDateStr + 'T00:00:00');
+            const endDate = new Date(endDateStr + 'T23:59:59');
+
+            const resultsBody = document.getElementById('historico-readings-body');
+            resultsBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center">Buscando dados...</td></tr>`;
+            if (historicoChart) { historicoChart.destroy(); historicoChart = null; }
+
+
+            try {
+                const equipmentData = allEquipment.find(e => e.id === equipmentId);
+                if (!equipmentData || !equipmentData.mac) {
+                    return showMessage('Erro', 'MAC address para este equipamento não encontrado.', 'error');
+                }
+
+                const q = query(collection(db, FIRESTORE_READINGS_COLLECTION_PATH),
+                    where("mac", "==", equipmentData.mac),
+                    orderBy("timestamp", "desc")
+                );
+
+                const snapshot = await getDocs(q);
+                
+                const allDocs = snapshot.docs.map(doc => doc.data());
+
+                const filteredResults = allDocs.filter(data => {
+                    const timestamp = data.timestamp.toDate();
+                    return timestamp >= startDate && timestamp <= endDate;
+                });
+                
+                if (filteredResults.length === 0) {
+                    resultsBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center">Nenhuma leitura encontrada para este período.</td></tr>`;
+                    updateHistoricoChart([], equipmentData); // Limpa o gráfico
+                    return;
+                }
+                
+                const limits = {
+                    produtivoMin: equipmentData.produtivoMin,
+                    produtivoMax: equipmentData.produtivoMax,
+                    paradoCentro: equipmentData.paradoCentro,
+                };
+
+                const results = filteredResults.map(data => {
+                    const status = calculateStatus(data.prof_media, limits);
+                    return { ...data, statusServico: status };
+                });
+
+                renderHistoricoResults(results, equipmentData);
+
+            } catch(error) {
+                console.error("Erro na busca de histórico:", error);
+                showMessage('Erro de Busca', 'Ocorreu um erro ao consultar o histórico. Verifique as regras do Firestore e os índices.', 'error');
+                resultsBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">Falha ao buscar dados.</td></tr>`;
+            }
+        }
+
+        function renderHistoricoResults(results, equipmentData) {
+            const resultsBody = document.getElementById('historico-readings-body');
+            resultsBody.innerHTML = results.map(r => {
+                 let statusClass = 'text-gray-500';
+                if (r.statusServico === 'Produtivo') statusClass = 'text-green-700 font-bold';
+                else if (r.statusServico === 'Sem Operação') statusClass = 'text-red-600 font-medium';
+                else if (r.statusServico === 'Deslocando') statusClass = 'text-amber-600 font-medium';
+                else if (r.statusServico === 'ERRO SENSOR') statusClass = 'text-slate-500 font-bold';
+                
+                return `<tr class="table-row">
+                    <td class="px-6 py-3">${formatTimestamp(r.timestamp)}</td>
+                    <td class="px-6 py-3">${(r.prof_media || 0).toFixed(2)}</td>
+                    <td class="px-6 py-3 ${statusClass}">${r.statusServico}</td>
+                    <td class="px-6 py-3">${r.status_conexao}</td>
+                </tr>`;
+            }).join('');
+            
+            updateHistoricoChart(results, equipmentData);
+        }
+
+        function updateHistoricoChart(readings, equipmentData) {
+            const ctxEl = document.getElementById('historico-chart');
+            if(!ctxEl) return;
+            const ctx = ctxEl.getContext('2d');
+            
+            if (historicoChart) { historicoChart.destroy(); historicoChart = null; }
+            if (!readings || readings.length === 0) return;
+
+            const reversedReadings = [...readings].reverse();
+            const { paradoCentro: hMesa, produtivoMin, produtivoMax } = equipmentData;
+
+            const chartData = {
+                labels: reversedReadings.map(r => r.timestamp.toDate()),
+                datasets: [
+                    {
+                        label: 'Profundidade de Operação',
+                        data: reversedReadings.map(r => hMesa - (r.prof_media || 0)),
+                        borderColor: '#40800c',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 1,
+                        fill: false,
+                        segment: {
+                            borderColor: ctx => {
+                                const yValue = ctx.p1.parsed.y;
+                                if (yValue >= produtivoMin && yValue <= produtivoMax) {
+                                    return '#40800c'; // Verde
+                                }
+                                return '#f59e0b'; // Amarelo
+                            }
+                        }
+                    }
+                ]
+            };
+
+            historicoChart = new Chart(ctx, {
+                type: 'line', data: chartData,
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { 
+                            type: 'time', 
+                            time: { tooltipFormat: 'dd/MM/yy HH:mm:ss', unit: 'hour', displayFormats: { hour: 'dd/MM HH:mm' } },
+                            grid: { display: false }
+                        },
+                        y: { 
+                            title: { display: true, text: 'Profundidade (cm)' }
+                        }
+                    },
+                    plugins: {
+                        title: { display: true, text: `Histórico de Profundidade para ${equipmentData.id}` },
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+        
+        // ====================================================================
+        // FIM DA LÓGICA DA ABA HISTÓRICO
         // ====================================================================
 
         async function handleAddUser(e) {
@@ -1840,7 +2113,7 @@
                 return profile.permissions && profile.permissions.includes(tab);
             };
 
-            const allTabs = ['implementos', 'fertirrigacao', 'limites'];
+            const allTabs = ['implementos', 'fertirrigacao', 'historico', 'limites'];
             if (profile.role === 'Master') allTabs.push('cadastro');
             
             const visibleTabs = allTabs.filter(canSee);
@@ -1869,6 +2142,7 @@
                     <nav id="tabs-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 ${firstVisibleTab || ''}">
                         ${canSee('implementos') ? `<button class="tab-button ${firstVisibleTab === 'implementos' ? 'active' : ''}" data-tab="implementos">Implementos</button>` : ''}
                         ${canSee('fertirrigacao') ? `<button class="tab-button ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}" data-tab="fertirrigacao">Fertirrigação</button>` : ''}
+                        ${canSee('historico') ? `<button class="tab-button ${firstVisibleTab === 'historico' ? 'active' : ''}" data-tab="historico">Histórico</button>` : ''}
                         ${canSee('limites') ? `<button class="tab-button ${firstVisibleTab === 'limites' ? 'active' : ''}" data-tab="limites">Equipamentos</button>` : ''}
                         ${profile.role === 'Master' ? `<button class="tab-button ${firstVisibleTab === 'cadastro' ? 'active' : ''}" data-tab="cadastro">Cadastro</button>` : ''}
                     </nav>
@@ -1876,6 +2150,7 @@
                 <main class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
                     <div id="implementos-tab" class="tab-content ${firstVisibleTab === 'implementos' ? 'active' : ''}">${getImplementosTabHTML()}</div>
                     <div id="fertirrigacao-tab" class="tab-content ${firstVisibleTab === 'fertirrigacao' ? 'active' : ''}">${getFertirrigacaoTabHTML()}</div>
+                    <div id="historico-tab" class="tab-content ${firstVisibleTab === 'historico' ? 'active' : ''}">${getHistoricoTabHTML()}</div>
                     <div id="limites-tab" class="tab-content ${firstVisibleTab === 'limites' ? 'active' : ''}">${getLimitesTabHTML()}</div>
                     ${profile.role === 'Master' ? `<div id="cadastro-tab" class="tab-content ${firstVisibleTab === 'cadastro' ? 'active' : ''}">${getAdminHTML()}</div>` : ''}
                 </main>
@@ -1893,7 +2168,7 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
-                    <label for="equipment-select-implementos" class="text-sm font-medium">Equipamento:</label>
+                    <label for="equipment-select-implementos" class="text-sm font-medium">Equipamento Ativo:</label>
                     <select id="equipment-select-implementos" class="rounded-md border-gray-300 shadow-sm"></select>
                 </div>
             </div>
@@ -1939,7 +2214,7 @@
                      <h2 class="text-2xl font-bold text-gray-800">Gráfico de Profundidade (Últimas Leituras)</h2>
                      <div class="relative group">
                          <span class="material-symbols-outlined text-gray-400 cursor-pointer">info</span>
-                         <div class="absolute bottom-full mb-2 w-72 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 hidden group-hover:block z-10">
+                         <div class="absolute bottom-full mb-2 w-72 bg-gray-800 text-white text-xs rounded-lg py-2 px-3 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                              <strong class="font-bold text-amber-400">Linha Laranja (h_Mesa):</strong> Altura do equipamento em repouso.<br>
                              <strong class="font-bold text-blue-400">Linha Azul:</strong> Distância do sensor ao solo (leitura bruta).<br>
                              <strong class="font-bold text-purple-400">Linha Roxa (Solo):</strong> Nível do chão (referência zero).<br>
@@ -2116,7 +2391,7 @@
                 <div id="gerenciar-equip-content" class="equip-sub-content">
                     <div class="bg-white p-6 rounded-xl shadow-xl">
                         <h2 class="text-2xl font-bold text-gray-900 mb-1">Lista de Equipamentos</h2>
-                        <p class="text-sm text-gray-500 mb-4">Pesquise, edite os limites ou ative um equipamento para monitoramento.</p>
+                        <p class="text-sm text-gray-500 mb-4">Pesquise, edite os limites ou ative/desative um equipamento para monitoramento.</p>
                         <div class="mb-4">
                             <input type="text" id="equipment-search-input" placeholder="Pesquisar por Nome ou MAC Address..." class="w-full p-2 border rounded-md focus:ring-amber-500 focus:border-amber-500">
                         </div>
@@ -2144,20 +2419,99 @@
         
                 <div id="vincular-equip-content" class="equip-sub-content hidden">
                      <div class="bg-white p-8 rounded-xl shadow-xl border-t-8 border-emerald-500">
-                         <h2 class="text-3xl font-bold text-gray-900 mb-2">Vincular Novo Equipamento</h2>
-                         <p class="text-sm text-gray-500 mb-6">Crie um novo perfil de equipamento associado a um MAC address físico.</p>
-                         <form id="new-equipment-form" class="space-y-4">
-                             <div>
-                                 <label for="new-mac" class="block text-sm font-medium text-gray-700">MAC Address do ESP32</label>
-                                 <input type="text" id="new-mac" name="new-mac" placeholder="AA:BB:CC:11:22:33" class="mt-1 block w-full rounded-md font-mono" required>
-                             </div>
-                             <div>
-                                 <label for="new-equipment-name" class="block text-sm font-medium text-gray-700">Nome do Novo Equipamento (ID)</label>
-                                 <input type="text" id="new-equipment-name" name="new-equipment-name" placeholder="Ex: Sulcador-02" class="mt-1 block w-full rounded-md" required>
-                             </div>
-                             <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-emerald-600 hover:bg-emerald-700">Vincular Equipamento</button>
-                         </form>
+                         <h2 class="text-3xl font-bold text-gray-900 mb-2">Dispositivos Não Vinculados</h2>
+                         <p class="text-sm text-gray-500 mb-6">A lista abaixo mostra dispositivos que estão enviando dados mas ainda não foram configurados. Clique em "Vincular" para cadastrá-los no sistema.</p>
+                         <div class="overflow-x-auto border rounded-lg">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="p-3 text-left font-semibold text-gray-600">MAC Address Detectado</th>
+                                        <th class="p-3 text-center font-semibold text-gray-600">Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="unlinked-devices-list" class="divide-y">
+                                    <!-- Conteúdo injetado via JS -->
+                                </tbody>
+                            </table>
+                        </div>
                      </div>
+                </div>
+            </div>`;
+        }
+        
+        function getHistoricoTabHTML() {
+            return `
+            <div class="space-y-8">
+                <div class="bg-white p-6 rounded-xl shadow-xl">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-1">Consulta de Histórico</h2>
+                    <p class="text-sm text-gray-500 mb-6">Selecione um equipamento e o período desejado para visualizar os dados de operação.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div class="md:col-span-2">
+                            <label for="equipment-select-historico" class="block text-sm font-medium text-gray-700">Equipamento</label>
+                            <select id="equipment-select-historico" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></select>
+                        </div>
+                        <div>
+                            <label for="date-start-historico" class="block text-sm font-medium text-gray-700">Data de Início</label>
+                            <input type="date" id="date-start-historico" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                             <label for="date-end-historico" class="block text-sm font-medium text-gray-700">Data Final</label>
+                            <input type="date" id="date-end-historico" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <button id="search-historico-btn" class="w-full md:w-auto bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-lg">
+                            Buscar Histórico
+                        </button>
+                    </div>
+                </div>
+
+                <div id="historico-results-container" class="space-y-8">
+                     <div class="bg-white p-6 rounded-xl shadow-xl h-96">
+                        <canvas id="historico-chart"></canvas>
+                     </div>
+                     <div class="bg-white rounded-xl shadow-xl overflow-hidden">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dist. Sensor-Solo (cm)</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status Serviço</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Conexão</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historico-readings-body" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">Aguardando busca...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function getVincularModalHTML(mac) {
+             return `
+            <div id="vincular-modal" class="modal-container fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                <div class="modal-content bg-white rounded-lg shadow-2xl max-w-lg w-full relative">
+                    <div class="p-6 border-b">
+                        <h2 class="text-2xl font-bold text-gray-900">Vincular Novo Equipamento</h2>
+                        <button class="close-modal-btn absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
+                    </div>
+                    <form id="vincular-form" class="p-6">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">MAC Address</label>
+                            <input type="text" value="${mac}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-100 font-mono" readonly>
+                        </div>
+                        <div class="mb-6">
+                            <label for="new-equipment-name-modal" class="block text-sm font-medium text-gray-700">Nome do Novo Equipamento (ID)</label>
+                            <input type="text" id="new-equipment-name-modal" placeholder="Ex: Sulcador-03" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                        </div>
+                        <div class="flex justify-end gap-4 bg-gray-50 p-4 -m-6 mt-6 rounded-b-lg">
+                            <button type="button" class="close-modal-btn px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
+                            <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-md">Salvar e Vincular</button>
+                        </div>
+                    </form>
                 </div>
             </div>`;
         }
@@ -2241,6 +2595,7 @@
                                 <label><input type="checkbox" name="permissions" value="implementos" ${user.permissions?.includes('implementos') ? 'checked' : ''}> Implementos</label>
                                 <label><input type="checkbox" name="permissions" value="fertirrigacao" ${user.permissions?.includes('fertirrigacao') ? 'checked' : ''}> Fertirrigação</label>
                                 <label><input type="checkbox" name="permissions" value="limites" ${user.permissions?.includes('limites') ? 'checked' : ''}> Equipamentos</label>
+                                <label><input type="checkbox" name="permissions" value="historico" ${user.permissions?.includes('historico') || isApproval ? 'checked' : ''}> Histórico</label>
                                 <label class="text-gray-500" title="Acesso ao painel de administração é exclusivo para o nível Master."><input type="checkbox" name="permissions" value="cadastro" ${user.permissions?.includes('cadastro') ? 'checked' : ''} disabled> Cadastro</label>
                             </div>
                         </div>
@@ -2256,3 +2611,4 @@
     </script>
 </body>
 </html>
+
