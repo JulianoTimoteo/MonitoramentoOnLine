@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.5</title>
+    <title>Sistema de Monitoramento Operacional - Usina Pitangueiras v7.7</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -57,7 +57,6 @@
         .table-row:nth-child(even) { background-color: #f3f4f6; }
 
         .status-produtivo { border-color: #40800c !important; color: #40800c !important; }
-        /* A classe 'status-parado' agora representa 'Sem Operação' */
         .status-parado { border-color: #ef4444 !important; color: #dc2626 !important; }
         .status-deslocando { border-color: #f59e0b !important; color: #d97706 !important; }
         .status-manutencao { border-color: #6366f1 !important; color: #4f46e5 !important; }
@@ -68,8 +67,23 @@
         .admin-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: background-color 0.2s; }
         .admin-sub-tab.active { background-color: var(--color-cadastro); color: white; }
 
-        .fert-sub-tab { cursor: pointer; padding: 0.5rem 1rem; border-radius: 9999px; transition: all 0.2s; border: 1px solid #d1d5db; color: #4b5563; }
-        .fert-sub-tab.active { background-color: var(--color-fertirrigacao); color: white; border-color: var(--color-fertirrigacao); }
+        /* Estilos atualizados para a aba Fertirrigação */
+        .fert-sub-tab {
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            font-weight: 700; /* bold */
+            background-color: #9CA3AF; /* gray-400 */
+            color: white;
+        }
+        .fert-sub-tab:hover {
+            background-color: #6B7280; /* gray-500 */
+        }
+        .fert-sub-tab.active {
+            background-color: var(--color-fertirrigacao); /* Azul */
+            color: white;
+        }
         .fert-sub-content { display: none; animation: fadeIn 0.5s; }
         .fert-sub-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -120,6 +134,12 @@
         .card-content-wrapper { position: relative; z-index: 2; padding: 1.5rem; }
         .login-card-border-top { border-top: 8px solid var(--animation-color, var(--color-primary)); padding: 0; }
         .login-card-border-top .card-content-wrapper { padding: 2rem; }
+        
+        /* Novos estilos para a aba Equipamentos */
+        .equip-sub-tab { cursor: pointer; color: #6b7280; border-bottom: 3px solid transparent; transition: all 0.2s; padding: 0.5rem 1rem; }
+        .equip-sub-tab.active { color: var(--color-limites); border-color: var(--color-limites); font-weight: 600; }
+        .equip-sub-content.hidden { display: none; }
+        .equip-sub-content { animation: fadeIn 0.5s; }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -160,12 +180,18 @@
         let unsubscribeLimits = () => {};
         let unsubscribeReadings = () => {};
         
+        // State for Fertirrigation Tab
         let lagoasChart = null;
         let fertirrigacaoInterval = null;
         let fertirrigacaoSubTabInterval = null;
         let lagoonsData = {};
         let totalVolumeIn = 0;
         let totalVolumeOut = 0;
+
+        // State for new Equipamentos Tab
+        let allEquipment = [];
+        let currentPage = 1;
+        const itemsPerPage = 5;
 
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('login-screen').innerHTML = getLoginHTML();
@@ -203,16 +229,8 @@
             document.getElementById('change-password-button')?.addEventListener('click', handlePasswordReset);
             setupTabNavigation();
             
-            populateAndSetupEquipmentSelectors();
-
-            const canManageLimits = currentUserProfile.role === 'Master' || (currentUserProfile.permissions && currentUserProfile.permissions.includes('limites'));
-
-            if (canManageLimits) {
-                document.getElementById('limits-form')?.addEventListener('submit', handleSaveLimits);
-                document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
-                const activateBtn = document.getElementById('activate-equipment-btn');
-                if (activateBtn) activateBtn.addEventListener('click', handleActivateEquipment);
-            }
+            setupImplementosSelector();
+            setupEquipamentosTab();
 
             if (currentUserProfile.role === 'Master') {
                 document.getElementById('add-user-form')?.addEventListener('submit', handleAddUser);
@@ -221,24 +239,20 @@
             }
         }
         
-        async function populateAndSetupEquipmentSelectors() {
+        async function setupImplementosSelector() {
             const implementosSelect = document.getElementById('equipment-select-implementos');
-            const limitesSelect = document.getElementById('equipment-select-limites');
-            if (!implementosSelect || !limitesSelect) return;
+            if (!implementosSelect) return;
 
             try {
                 const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH));
                 onSnapshot(q, (snapshot) => {
                     const previouslySelectedId = currentEquipmentId; 
                     implementosSelect.innerHTML = ''; 
-                    limitesSelect.innerHTML = ''; 
 
                     let firstEquipmentId = null;
                     let idList = [];
                     if (snapshot.empty) {
-                        const noEquipMsg = '<option value="">Nenhum equipamento cadastrado</option>';
-                        implementosSelect.innerHTML = noEquipMsg;
-                        limitesSelect.innerHTML = noEquipMsg;
+                        implementosSelect.innerHTML = '<option value="">Nenhum equipamento cadastrado</option>';
                         loadEquipmentData(null);
                         return;
                     }
@@ -251,7 +265,6 @@
                         const activeMarker = data.isActive ? ' ✔️' : '';
                         const optionHTML = `<option value="${equipmentId}">${equipmentId}${activeMarker}</option>`;
                         implementosSelect.innerHTML += optionHTML;
-                        limitesSelect.innerHTML += optionHTML;
                     });
                     
                     let idToSelect = previouslySelectedId && idList.includes(previouslySelectedId)
@@ -260,27 +273,18 @@
 
                     if (idToSelect) {
                         implementosSelect.value = idToSelect;
-                        limitesSelect.value = idToSelect;
                         if (currentEquipmentId !== idToSelect) {
                             loadEquipmentData(idToSelect);
                         }
                     }
                 });
 
-                const handleSelectionChange = (event) => {
-                    const selectedEquipmentId = event.target.value;
-                    if (selectedEquipmentId) {
-                        implementosSelect.value = selectedEquipmentId;
-                        limitesSelect.value = selectedEquipmentId;
-                        loadEquipmentData(selectedEquipmentId);
-                    }
-                };
-
-                implementosSelect.addEventListener('change', handleSelectionChange);
-                limitesSelect.addEventListener('change', handleSelectionChange);
+                implementosSelect.addEventListener('change', (event) => {
+                    loadEquipmentData(event.target.value);
+                });
 
             } catch (error) {
-                console.error("Erro ao carregar equipamentos:", error);
+                console.error("Erro ao carregar equipamentos para o seletor:", error);
                 showMessage('Erro', 'Não foi possível carregar a lista de equipamentos.', 'error');
             }
         }
@@ -291,15 +295,8 @@
             unsubscribeReadings();
             readingsCache = [];
             
-            const nameInput = document.getElementById('equipment-name');
-            const macInput = document.getElementById('equipment-mac');
-            const activateBtn = document.getElementById('activate-equipment-btn');
-
             if (!equipmentId) {
                 currentMacAddress = null;
-                if (nameInput) nameInput.value = '';
-                if (macInput) macInput.value = '';
-                if (activateBtn) activateBtn.classList.add('hidden');
                 updateDashboard([]);
                 updateConfigForm(null);
                 return;
@@ -311,28 +308,10 @@
             if (limitsDoc.exists()) {
                 const data = limitsDoc.data();
                 currentMacAddress = data.mac || null;
-                if (nameInput) nameInput.value = equipmentId;
-                if (macInput) macInput.value = currentMacAddress || '';
-                if (activateBtn) {
-                    activateBtn.classList.remove('hidden', 'bg-gray-400', 'cursor-not-allowed', 'bg-emerald-600', 'hover:bg-emerald-700');
-                    if(data.isActive) {
-                        activateBtn.textContent = 'Equipamento Ativo';
-                        activateBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
-                        activateBtn.disabled = true;
-                    } else {
-                        activateBtn.textContent = 'Ativar este Equipamento';
-                        activateBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
-                        activateBtn.disabled = false;
-                    }
-                }
-                
                 listenToLimits(equipmentId);
                 listenToReadings(equipmentId, currentMacAddress); 
             } else {
                 currentMacAddress = null;
-                if (nameInput) nameInput.value = equipmentId;
-                if (macInput) macInput.value = 'MAC não encontrado!';
-                if (activateBtn) activateBtn.classList.add('hidden');
                 listenToReadings(equipmentId, null); 
                 updateConfigForm(null);
             }
@@ -366,34 +345,30 @@
                     createdAt: serverTimestamp()
                 };
                 await setDoc(nameRef, defaultLimits);
-                showMessage('Sucesso!', `Equipamento "${newName}" vinculado. Vá para a aba Equipamentos para ativá-lo.`, 'success');
+                showMessage('Sucesso!', `Equipamento "${newName}" vinculado com sucesso.`, 'success');
                 form.reset();
+                renderEquipamentosList(); // Refresh the list
             } catch (error) {
                 console.error("Erro ao vincular equipamento:", error);
                 showMessage('Erro', 'Não foi possível criar o novo vínculo.', 'error');
             }
         }
 
-        async function handleSaveLimits(e) {
+        async function handleUpdateEquipment(e, equipmentId) {
             e.preventDefault();
-            const originalEquipmentId = currentEquipmentId;
-
-            if (!originalEquipmentId) {
-                return showMessage('Atenção', 'Selecione um equipamento na lista antes de salvar.', 'warning');
-            }
-
             const form = e.target;
-            const newName = form.elements['equipment-name'].value.trim();
-
+            const originalEquipmentId = equipmentId;
+            const newName = form.elements['equipment-name-modal'].value.trim();
+        
             if (!newName) {
                 return showMessage('Erro', 'O nome do equipamento não pode ficar em branco.', 'error');
             }
             
             const newLimitsData = {
-                produtivoMin: parseFloat(form.elements['input-produtivo-min'].value),
-                produtivoMax: parseFloat(form.elements['input-produtivo-max'].value),
-                paradoCentro: parseFloat(form.elements['input-parado-centro'].value),
-                paradoTolerancia: parseFloat(form.elements['input-parado-tolerancia'].value),
+                produtivoMin: parseFloat(form.elements['input-produtivo-min-modal'].value),
+                produtivoMax: parseFloat(form.elements['input-produtivo-max-modal'].value),
+                paradoCentro: parseFloat(form.elements['input-parado-centro-modal'].value),
+                paradoTolerancia: parseFloat(form.elements['input-parado-tolerancia-modal'].value),
                 updatedAt: serverTimestamp()
             };
             
@@ -404,79 +379,68 @@
                 return showMessage('Erro de Validação', 'A Profundidade Mínima deve ser menor que a Máxima.', 'warning');
             }
 
-            if (newName === originalEquipmentId) {
-                const limitsRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
+            const updateAction = async () => {
                 try {
-                    await updateDoc(limitsRef, newLimitsData);
-                    showMessage('Sucesso!', `Limites para "${originalEquipmentId}" foram atualizados.`, 'success');
-                } catch (error) {
-                    console.error("Erro ao salvar limites:", error);
-                    showMessage('Erro', 'Não foi possível salvar as configurações. Verifique suas permissões.', 'error');
-                }
-            } 
-            else {
-                const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O perfil antigo será apagado. Deseja continuar?`;
-                
-                showConfirmationModal(confirmMessage, async () => {
-                    try {
+                    if (newName === originalEquipmentId) { // Just updating limits
+                        const limitsRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
+                        await updateDoc(limitsRef, newLimitsData);
+                        showMessage('Sucesso!', `Limites para "${originalEquipmentId}" foram atualizados.`, 'success');
+                    } else { // Renaming
                         const newDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, newName);
                         const newDocSnap = await getDoc(newDocRef);
                         if (newDocSnap.exists()) {
-                            showMessage('Erro', `O nome de equipamento "${newName}" já existe.`, 'error');
-                            document.getElementById('equipment-name').value = originalEquipmentId; 
-                            return;
+                            return showMessage('Erro', `O nome de equipamento "${newName}" já existe.`, 'error');
                         }
-
                         const oldDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, originalEquipmentId);
                         const oldDocSnap = await getDoc(oldDocRef);
-                        if (!oldDocSnap.exists()) {
-                            showMessage('Erro', `O equipamento original "${originalEquipmentId}" não foi encontrado.`, 'error');
-                            return;
-                        }
-
-                        const dataToMove = oldDocSnap.data();
+                        if (!oldDocSnap.exists()) return showMessage('Erro', `Equipamento original não encontrado.`, 'error');
                         
-                        const finalData = { 
-                            ...dataToMove, 
-                            ...newLimitsData, 
-                            equipamento: newName
-                        };
-
+                        const dataToMove = oldDocSnap.data();
+                        const finalData = { ...dataToMove, ...newLimitsData, equipamento: newName };
+                        
                         await setDoc(newDocRef, finalData);
                         await deleteDoc(oldDocRef);
-                        
                         showMessage('Sucesso!', `Equipamento renomeado para "${newName}".`, 'success');
-                        
-                    } catch (error) {
-                        console.error("Erro ao renomear equipamento:", error);
-                        showMessage('Erro', 'Ocorreu um erro durante a renomeação.', 'error');
                     }
-                });
+                } catch (error) {
+                     console.error("Erro ao salvar/renomear equipamento:", error);
+                     showMessage('Erro', 'Não foi possível salvar as configurações.', 'error');
+                } finally {
+                    document.getElementById('edit-equipment-modal')?.remove();
+                    renderEquipamentosList();
+                }
+            };
+            
+            if (newName !== originalEquipmentId) {
+                const confirmMessage = `Você está renomeando "${originalEquipmentId}" para "${newName}". O perfil antigo será apagado. Deseja continuar?`;
+                showConfirmationModal(confirmMessage, updateAction);
+            } else {
+                updateAction();
             }
         }
         
-        async function handleActivateEquipment() {
-            if (!currentEquipmentId || !currentMacAddress) {
+        async function handleActivateEquipment(equipmentId, macAddress) {
+            if (!equipmentId || !macAddress) {
                 return showMessage('Erro', 'Nenhum equipamento selecionado para ativar.', 'error');
             }
             
             const batch = writeBatch(db);
-            const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), where("mac", "==", currentMacAddress));
+            const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), where("mac", "==", macAddress));
             
             try {
                 const querySnapshot = await getDocs(q);
-                // Desativa todos os outros equipamentos com o mesmo MAC
+                // Deactivate all others with the same MAC
                 querySnapshot.forEach(document => {
                     batch.update(document.ref, { isActive: false });
                 });
                 
-                // Ativa o equipamento selecionado
-                const currentDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, currentEquipmentId);
+                // Activate the selected one
+                const currentDocRef = doc(db, FIRESTORE_LIMITS_COLLECTION_PATH, equipmentId);
                 batch.update(currentDocRef, { isActive: true });
                 
                 await batch.commit();
-                showMessage('Sucesso!', `"${currentEquipmentId}" agora é o equipamento ativo para este MAC.`, 'success');
-                loadEquipmentData(currentEquipmentId);
+                showMessage('Sucesso!', `"${equipmentId}" agora é o equipamento ativo para este MAC.`, 'success');
+                renderEquipamentosList();
             } catch (error) {
                 console.error("Erro ao ativar equipamento:", error);
                 showMessage('Erro', 'Não foi possível ativar o equipamento. Verifique as permissões.', 'error');
@@ -528,11 +492,11 @@
                 } else {
                     const docsData = snapshot.docs.map(doc => doc.data());
                      readingsCache = docsData.map((data, index, array) => {
-                        const previousData = index < array.length - 1 ? array[index + 1] : null;
-                        const previousDepth = previousData ? previousData.prof_media : data.prof_media;
-                        const statusServico = calculateStatus(data.prof_media, currentLimits, previousDepth);
-                        return { ...data, statusServico };
-                    });
+                         const previousData = index < array.length - 1 ? array[index + 1] : null;
+                         const previousDepth = previousData ? previousData.prof_media : data.prof_media;
+                         const statusServico = calculateStatus(data.prof_media, currentLimits, previousDepth);
+                         return { ...data, statusServico };
+                     });
                 }
                 updateDashboard(readingsCache);
             }, (error) => {
@@ -753,12 +717,10 @@
                 return 'Produtivo';
             }
             
-            // Regra atualizada: profundidade de operação negativa indica deslocamento
             if (opDepth < 0) {
                 return 'Deslocando';
             }
             
-            // Tudo o que sobra é considerado "Sem Operação"
             return 'Sem Operação';
         }
 
@@ -783,13 +745,12 @@
                 statusClassToAdd = 'status-deslocando';
                 animationColor = '#f59e0b';
             }
-            // Agrupando "Sem Operação" e outros estados
             else if (status === 'Sem Operação' || status === 'Parado' || status === 'Manutenção') {
-                statusText.textContent = 'Sem Operação'; // Garante que o texto seja consistente
-                statusClassToAdd = 'status-parado'; // Usa o estilo de "parado" (vermelho)
+                statusText.textContent = 'Sem Operação';
+                statusClassToAdd = 'status-parado';
                 animationColor = '#ef4444';
             }
-            else { // ERRO SENSOR, Sem Limites, etc.
+            else {
                 statusClassToAdd = 'status-erro';
             }
 
@@ -804,14 +765,6 @@
 
 
         function updateConfigForm(limits) {
-            const form = document.getElementById('limits-form');
-            if (!form) return;
-            
-            form.elements['input-produtivo-min'].value = limits ? limits.produtivoMin : '';
-            form.elements['input-produtivo-max'].value = limits ? limits.produtivoMax : '';
-            form.elements['input-parado-centro'].value = limits ? limits.paradoCentro : '';
-            form.elements['input-parado-tolerancia'].value = limits ? limits.paradoTolerancia : '';
-
             const limitProdutivo = document.getElementById('limit-produtivo');
             const limitParado = document.getElementById('limit-parado');
             if (limitProdutivo) {
@@ -877,7 +830,6 @@
                 badge.classList.add('bg-red-500');
             }
 
-            // A função calculateStatus agora só precisa da leitura atual e dos limites
             renderStatus(calculateStatus(latestDepth, currentLimits), latestDepth);
             
             updateProductiveChart(readings);
@@ -887,7 +839,7 @@
             readings.forEach(r => {
                 let statusClass = 'text-gray-500';
                 if (r.statusServico === 'Produtivo') statusClass = 'text-green-700 font-bold';
-                else if (r.statusServico === 'Sem Operação') statusClass = 'text-red-600 font-medium'; // Agrupado
+                else if (r.statusServico === 'Sem Operação') statusClass = 'text-red-600 font-medium';
                 else if (r.statusServico === 'Deslocando') statusClass = 'text-amber-600 font-medium';
                 else if (r.statusServico === 'ERRO SENSOR') statusClass = 'text-slate-500 font-bold';
 
@@ -1002,7 +954,7 @@
                     {
                         label: 'Nível do Solo',
                         data: reversedReadings.map(() => 0),
-                        borderColor: '#7c3aed', // Roxo
+                        borderColor: '#7c3aed',
                         borderWidth: 2,
                         pointRadius: 0,
                         fill: false,
@@ -1028,7 +980,7 @@
                     {
                         label: 'Profundidade de Operação',
                         data: reversedReadings.map(r => - (hMesa - (r.prof_media || 0))),
-                        borderColor: '#40800c', // Verde para a legenda
+                        borderColor: '#40800c',
                         borderWidth: 3,
                         tension: 0.4,
                         pointRadius: 0,
@@ -1038,9 +990,9 @@
                                 const yValue = ctx.p1.parsed.y;
                                 const depth = -yValue; 
                                 if (depth >= produtivoMin && depth <= produtivoMax) {
-                                    return '#40800c'; // Verde
+                                    return '#40800c';
                                 }
-                                return '#f59e0b'; // Amarelo
+                                return '#f59e0b';
                             }
                         }
                     }
@@ -1062,7 +1014,13 @@
                         scales: {
                             x: { 
                                 type: 'time', 
-                                time: { unit: 'minute', tooltipFormat: 'dd/MM/yy HH:mm:ss' },
+                                time: { 
+                                    unit: 'minute', 
+                                    tooltipFormat: 'dd/MM/yy HH:mm:ss',
+                                    displayFormats: {
+                                        minute: 'HH:mm' // Formato 24h para o eixo
+                                    }
+                                },
                                 grid: { display: false },
                                 ticks: { color: 'rgb(100 116 139)' }
                             },
@@ -1464,6 +1422,164 @@
         // FIM DA LÓGICA DE FERTIRRIGAÇÃO
         // ====================================================================
 
+        // ====================================================================
+        // NOVA LÓGICA DA ABA EQUIPAMENTOS
+        // ====================================================================
+        function setupEquipamentosTab() {
+            const tabsContainer = document.querySelector('#limites-tab .flex.border-b');
+            tabsContainer?.addEventListener('click', (e) => {
+                if(e.target.matches('.equip-sub-tab')) {
+                    const tabId = e.target.dataset.tab;
+                    tabsContainer.querySelectorAll('.equip-sub-tab').forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    document.querySelectorAll('.equip-sub-content').forEach(c => c.classList.add('hidden'));
+                    document.getElementById(`${tabId}-content`).classList.remove('hidden');
+                }
+            });
+            
+            document.getElementById('new-equipment-form')?.addEventListener('submit', handleVincularEquipamento);
+            document.getElementById('equipment-search-input')?.addEventListener('input', () => {
+                currentPage = 1;
+                renderEquipamentosList();
+            });
+
+            const equipmentListBody = document.getElementById('equipment-list-body');
+            equipmentListBody?.addEventListener('click', e => {
+                const editBtn = e.target.closest('.edit-btn');
+                const activateBtn = e.target.closest('.activate-btn');
+                
+                if (editBtn) {
+                    const id = editBtn.dataset.id;
+                    openEditEquipmentModal(id);
+                }
+
+                if (activateBtn && !activateBtn.disabled) {
+                    const id = activateBtn.dataset.id;
+                    const mac = activateBtn.dataset.mac;
+                    handleActivateEquipment(id, mac);
+                }
+            });
+
+            renderEquipamentosList();
+        }
+
+        async function renderEquipamentosList() {
+            try {
+                const q = query(collection(db, FIRESTORE_LIMITS_COLLECTION_PATH), orderBy('equipamento'));
+                const snapshot = await getDocs(q);
+                allEquipment = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                const searchTerm = document.getElementById('equipment-search-input')?.value.toLowerCase() || '';
+                const filtered = allEquipment.filter(equip => 
+                    equip.id.toLowerCase().includes(searchTerm) || 
+                    (equip.mac && equip.mac.toLowerCase().includes(searchTerm))
+                );
+
+                renderPagination(filtered);
+                renderTablePage(filtered);
+
+            } catch (error) {
+                console.error("Erro ao renderizar lista de equipamentos:", error);
+                document.getElementById('equipment-list-body').innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Falha ao carregar equipamentos.</td></tr>`;
+            }
+        }
+
+        function renderTablePage(filteredList) {
+            const listBody = document.getElementById('equipment-list-body');
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const pageItems = filteredList.slice(startIndex, endIndex);
+
+            if (pageItems.length === 0) {
+                listBody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum equipamento encontrado.</td></tr>`;
+                return;
+            }
+
+            listBody.innerHTML = pageItems.map(equip => {
+                const statusBadge = equip.isActive 
+                    ? `<span class="bg-emerald-100 text-emerald-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Ativo</span>`
+                    : `<span class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Inativo</span>`;
+                
+                const activateButton = equip.isActive
+                    ? `<button class="bg-gray-300 text-gray-500 px-3 py-1 rounded-md text-xs cursor-not-allowed" disabled>Ativo</button>`
+                    : `<button data-id="${equip.id}" data-mac="${equip.mac}" class="activate-btn bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-md text-xs">Ativar</button>`;
+                
+                return `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="p-3 font-medium text-gray-900">${equip.id}</td>
+                        <td class="p-3 text-gray-600 font-mono">${equip.mac || 'N/A'}</td>
+                        <td class="p-3 text-gray-600">${equip.produtivoMin} / ${equip.produtivoMax} / ${equip.paradoCentro} cm</td>
+                        <td class="p-3 text-center">${statusBadge}</td>
+                        <td class="p-3 text-center">
+                            <div class="flex items-center justify-center gap-2">
+                                <button data-id="${equip.id}" class="edit-btn text-gray-500 hover:text-amber-600 p-1 rounded-full">
+                                    <span class="material-symbols-outlined" style="font-size: 20px;">edit</span>
+                                </button>
+                                ${activateButton}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderPagination(filteredList) {
+            const paginationContainer = document.getElementById('equipment-pagination');
+            const totalPages = Math.ceil(filteredList.length / itemsPerPage);
+            if(totalPages <= 1) {
+                paginationContainer.innerHTML = '';
+                return;
+            }
+
+            let paginationHTML = `
+                <button id="prev-page" class="px-3 py-1 border rounded-md text-sm" ${currentPage === 1 ? 'disabled' : ''}>Anterior</button>
+                <span class="text-sm text-gray-600">Página ${currentPage} de ${totalPages}</span>
+                <button id="next-page" class="px-3 py-1 border rounded-md text-sm" ${currentPage === totalPages ? 'disabled' : ''}>Próxima</button>
+            `;
+            paginationContainer.innerHTML = paginationHTML;
+
+            document.getElementById('prev-page')?.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTablePage(filteredList);
+                    renderPagination(filteredList);
+                }
+            });
+
+            document.getElementById('next-page')?.addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTablePage(filteredList);
+                    renderPagination(filteredList);
+                }
+            });
+        }
+
+        function openEditEquipmentModal(equipmentId) {
+            const equipmentData = allEquipment.find(e => e.id === equipmentId);
+            if (!equipmentData) {
+                return showMessage('Erro', 'Dados do equipamento não encontrados.', 'error');
+            }
+            
+            const modalPlaceholder = document.getElementById('modal-placeholder');
+            modalPlaceholder.innerHTML = getEditEquipmentModalHTML(equipmentData);
+
+            const modal = document.getElementById('edit-equipment-modal');
+            modal.classList.remove('hidden');
+
+            const closeModal = () => modal.remove();
+            modal.addEventListener('click', e => {
+                if (e.target.id === 'edit-equipment-modal' || e.target.closest('.close-modal-btn')) {
+                    closeModal();
+                }
+            });
+            modal.querySelector('#edit-equipment-form').addEventListener('submit', (e) => handleUpdateEquipment(e, equipmentId));
+        }
+        
+        // ====================================================================
+        // FIM DA LÓGICA DA ABA EQUIPAMENTOS
+        // ====================================================================
+
         async function handleAddUser(e) {
             e.preventDefault();
             const form = e.target;
@@ -1657,8 +1773,8 @@
                     <h3 class="text-lg font-bold mb-4">Confirmação</h3>
                     <p class="mb-6">${message}</p>
                     <div class="flex justify-end gap-4">
-                        <button id="cancel-confirmation" class="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                        <button id="confirm-action" class="px-4 py-2 bg-red-600 text-white rounded">Confirmar</button>
+                        <button id="cancel-confirmation" class="px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
+                        <button id="confirm-action" class="px-4 py-2 bg-red-600 text-white rounded-md">Confirmar</button>
                     </div>
                 </div>
             </div>`;
@@ -1771,7 +1887,7 @@
             <div class="flex justify-between items-center mb-8 border-b pb-4">
                 <div class="flex items-center gap-4">
                     <h2 class="text-2xl font-bold text-gray-800">Status em Tempo Real</h2>
-                    <div id="connection-status-badge" class="hidden items-center gap-2 px-3 py-1 text-sm font-bold text-white bg-gray-400 rounded-full">
+                    <div id="connection-status-badge" class="hidden items-center gap-2 px-3 py-1 text-sm font-bold text-white bg-gray-400 rounded-lg">
                         <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>
                         <span id="connection-status-text">Aguardando</span>
                     </div>
@@ -1830,7 +1946,7 @@
                              <strong class="font-bold">Linha Inferior:</strong> Profundidade de operação (h_Mesa - Leitura). Fica <span class="text-green-400">verde</span> quando produtivo e <span class="text-yellow-400">amarela</span> quando não.
                          </div>
                      </div>
-                </div>
+                 </div>
 
                 <div class="bg-slate-800 p-6 rounded-xl shadow-2xl relative">
                     <div class="pt-8">
@@ -1876,8 +1992,8 @@
                         </div>
                     </div>
                     <div class="flex mt-4 items-end gap-6 z-10 relative">
-                        <div class="w-16 h-40 bg-slate-700 rounded-full flex flex-col-reverse relative overflow-hidden border border-slate-600">
-                            <div id="lagoa-gauge-${id}" class="w-full bg-cyan-400 rounded-b-full transition-all duration-500" style="height: 0%;"></div>
+                        <div class="w-16 h-40 bg-slate-700 rounded-lg flex flex-col-reverse relative overflow-hidden border border-slate-600">
+                            <div id="lagoa-gauge-${id}" class="w-full bg-cyan-400 rounded-b-lg transition-all duration-500" style="height: 0%;"></div>
                             <div class="absolute inset-0 flex items-center justify-center">
                                 <span id="lagoa-percent-${id}" class="text-white font-bold text-lg drop-shadow-md">0%</span>
                             </div>
@@ -1956,7 +2072,7 @@
                     <button class="fert-sub-tab" data-tab="vazao-content">Vazão e Acumulado</button>
                     <button class="fert-sub-tab" data-tab="grafico-content">Gráfico Geral</button>
                 </nav>
-                <button id="play-pause-btn" class="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-full shadow hover:bg-red-600 transition">
+                <button id="play-pause-btn" class="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-lg shadow hover:bg-red-600 transition">
                     <span class="material-symbols-outlined">play_arrow</span> Autoplay
                 </button>
             </div>
@@ -1991,46 +2107,82 @@
 
         function getLimitesTabHTML() {
             return `
-            <div class="max-w-2xl mx-auto space-y-10">
-                <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-3xl font-bold text-gray-900">Configurar Equipamento</h2>
-                        <div class="flex items-center space-x-2">
-                            <label for="equipment-select-limites" class="text-sm font-medium">Equipamento:</label>
-                            <select id="equipment-select-limites" class="rounded-md border-gray-300 shadow-sm"></select>
+            <div class="max-w-4xl mx-auto space-y-8">
+                <div class="flex border-b">
+                    <button data-tab="gerenciar-equip" class="equip-sub-tab active">Gerenciar Equipamentos</button>
+                    <button data-tab="vincular-equip" class="equip-sub-tab">Vincular Novo</button>
+                </div>
+        
+                <div id="gerenciar-equip-content" class="equip-sub-content">
+                    <div class="bg-white p-6 rounded-xl shadow-xl">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-1">Lista de Equipamentos</h2>
+                        <p class="text-sm text-gray-500 mb-4">Pesquise, edite os limites ou ative um equipamento para monitoramento.</p>
+                        <div class="mb-4">
+                            <input type="text" id="equipment-search-input" placeholder="Pesquisar por Nome ou MAC Address..." class="w-full p-2 border rounded-md focus:ring-amber-500 focus:border-amber-500">
+                        </div>
+                        <div class="overflow-x-auto border rounded-lg">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="p-3 text-left font-semibold text-gray-600">Nome</th>
+                                        <th class="p-3 text-left font-semibold text-gray-600">MAC Address</th>
+                                        <th class="p-3 text-left font-semibold text-gray-600">Limites (Min/Max/Mesa)</th>
+                                        <th class="p-3 text-center font-semibold text-gray-600">Status</th>
+                                        <th class="p-3 text-center font-semibold text-gray-600">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="equipment-list-body" class="divide-y">
+                                    <tr><td colspan="5" class="p-4 text-center text-gray-500">Carregando equipamentos...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="equipment-pagination" class="mt-4 flex justify-end items-center space-x-2 text-sm text-gray-600">
+                            <!-- Pagination controls injectadas aqui -->
                         </div>
                     </div>
-                     <p class="text-sm text-gray-500 mb-6">Selecione um equipamento para editar seus limites. Para torná-lo ativo para o ESP32, clique no botão 'Ativar'.</p>
-                    <form id="limits-form">
-                        <div class="mb-4">
-                            <label for="equipment-name" class="block text-sm font-medium text-gray-700">Nome do Equipamento (ID)</label>
-                            <input type="text" id="equipment-name" name="equipment-name" class="mt-1 block w-full rounded-md" required>
-                        </div>
+                </div>
+        
+                <div id="vincular-equip-content" class="equip-sub-content hidden">
+                     <div class="bg-white p-8 rounded-xl shadow-xl border-t-8 border-emerald-500">
+                         <h2 class="text-3xl font-bold text-gray-900 mb-2">Vincular Novo Equipamento</h2>
+                         <p class="text-sm text-gray-500 mb-6">Crie um novo perfil de equipamento associado a um MAC address físico.</p>
+                         <form id="new-equipment-form" class="space-y-4">
+                             <div>
+                                 <label for="new-mac" class="block text-sm font-medium text-gray-700">MAC Address do ESP32</label>
+                                 <input type="text" id="new-mac" name="new-mac" placeholder="AA:BB:CC:11:22:33" class="mt-1 block w-full rounded-md font-mono" required>
+                             </div>
+                             <div>
+                                 <label for="new-equipment-name" class="block text-sm font-medium text-gray-700">Nome do Novo Equipamento (ID)</label>
+                                 <input type="text" id="new-equipment-name" name="new-equipment-name" placeholder="Ex: Sulcador-02" class="mt-1 block w-full rounded-md" required>
+                             </div>
+                             <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-emerald-600 hover:bg-emerald-700">Vincular Equipamento</button>
+                         </form>
+                     </div>
+                </div>
+            </div>`;
+        }
+
+        function getEditEquipmentModalHTML(equipment) {
+            return `
+            <div id="edit-equipment-modal" class="modal-container fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                <div class="modal-content bg-white rounded-lg shadow-2xl max-w-2xl w-full relative">
+                    <div class="p-6 border-b">
+                        <h2 class="text-2xl font-bold text-gray-900">Editar Equipamento</h2>
+                        <p class="text-sm text-gray-500">MAC Address: <span class="font-mono">${equipment.mac}</span></p>
+                        <button class="close-modal-btn absolute top-4 right-4 text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
+                    </div>
+                    <form id="edit-equipment-form" class="p-6">
                         <div class="mb-6">
-                             <label for="equipment-mac" class="block text-sm font-medium text-gray-700">MAC Address (Fixo)</label>
-                            <input type="text" id="equipment-mac" class="mt-1 block w-full rounded-md bg-gray-100 cursor-not-allowed font-mono" readonly>
+                            <label for="equipment-name-modal" class="block text-sm font-medium text-gray-700">Nome do Equipamento (ID)</label>
+                            <input type="text" id="equipment-name-modal" value="${equipment.id}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
                         </div>
-                        <fieldset class="space-y-6 mb-8 p-6 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min" name="produtivo-min" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max" name="produtivo-max" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                        <fieldset class="space-y-6 mb-10 p-6 border rounded-lg"><legend class="text-lg font-semibold text-indigo-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro" name="parado-centro" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia" name="parado-tolerancia" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
-                        <div class="flex gap-4">
-                            <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-amber-600 hover:bg-amber-700">Salvar Alterações</button>
-                            <button type="button" id="activate-equipment-btn" class="w-full py-3 px-4 rounded-md shadow-lg text-white hidden">Ativar</button>
+                        <fieldset class="space-y-6 mb-6 p-4 border rounded-lg"><legend class="text-lg font-semibold text-emerald-700 px-2">Limites para Status Produtivo</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-produtivo-min-modal" class="block text-sm font-medium text-gray-700">Prof. Mínima (cm)</label><input type="number" step="0.1" id="input-produtivo-min-modal" value="${equipment.produtivoMin}" class="mt-1 block w-full rounded-md" required></div><div><label for="input-produtivo-max-modal" class="block text-sm font-medium text-gray-700">Prof. Máxima (cm)</label><input type="number" step="0.1" id="input-produtivo-max-modal" value="${equipment.produtivoMax}" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                        <fieldset class="space-y-6 mb-8 p-4 border rounded-lg"><legend class="text-lg font-semibold text-indigo-700 px-2">Limites para Status Manutenção</legend><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label for="input-parado-centro-modal" class="block text-sm font-medium text-gray-700">h_Mesa (Centro cm)</label><input type="number" step="0.1" id="input-parado-centro-modal" value="${equipment.paradoCentro}" class="mt-1 block w-full rounded-md" required></div><div><label for="input-parado-tolerancia-modal" class="block text-sm font-medium text-gray-700">Tolerância (&pm; cm)</label><input type="number" step="0.1" id="input-parado-tolerancia-modal" value="${equipment.paradoTolerancia}" class="mt-1 block w-full rounded-md" required></div></div></fieldset>
+                        <div class="flex justify-end gap-4 bg-gray-50 p-4 -m-6 mt-6 rounded-b-lg">
+                            <button type="button" class="close-modal-btn px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
+                            <button type="submit" class="px-4 py-2 bg-amber-600 text-white rounded-md">Salvar Alterações</button>
                         </div>
                     </form>
-                </div>
-                <div class="bg-white p-8 rounded-xl shadow-2xl border-t-8 border-emerald-500">
-                     <h2 class="text-3xl font-bold text-gray-900 mb-6">Vincular Novo Equipamento</h2>
-                     <form id="new-equipment-form" class="space-y-4">
-                         <div>
-                             <label for="new-mac" class="block text-sm font-medium text-gray-700">MAC Address do ESP32</label>
-                             <input type="text" id="new-mac" name="new-mac" placeholder="AA:BB:CC:11:22:33" class="mt-1 block w-full rounded-md font-mono" required>
-                         </div>
-                         <div>
-                             <label for="new-equipment-name" class="block text-sm font-medium text-gray-700">Nome do Novo Equipamento (ID)</label>
-                             <input type="text" id="new-equipment-name" name="new-equipment-name" placeholder="Ex: Sulcador-02" class="mt-1 block w-full rounded-md" required>
-                         </div>
-                         <button type="submit" class="w-full py-3 px-4 rounded-md shadow-lg text-white bg-emerald-600 hover:bg-emerald-700">Vincular Equipamento</button>
-                     </form>
                 </div>
             </div>`;
         }
@@ -2088,13 +2240,13 @@
                             <div class="flex flex-col sm:flex-row gap-4">
                                 <label><input type="checkbox" name="permissions" value="implementos" ${user.permissions?.includes('implementos') ? 'checked' : ''}> Implementos</label>
                                 <label><input type="checkbox" name="permissions" value="fertirrigacao" ${user.permissions?.includes('fertirrigacao') ? 'checked' : ''}> Fertirrigação</label>
-                                <label><input type="checkbox" name="permissions" value="limites" ${user.permissions?.includes('limites') ? 'checked' : ''}> Limites</label>
+                                <label><input type="checkbox" name="permissions" value="limites" ${user.permissions?.includes('limites') ? 'checked' : ''}> Equipamentos</label>
                                 <label class="text-gray-500" title="Acesso ao painel de administração é exclusivo para o nível Master."><input type="checkbox" name="permissions" value="cadastro" ${user.permissions?.includes('cadastro') ? 'checked' : ''} disabled> Cadastro</label>
                             </div>
                         </div>
                         <div class="flex justify-end gap-4">
-                            <button type="button" id="cancel-management" class="px-4 py-2 bg-gray-200 rounded">Cancelar</button>
-                            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Salvar Alterações</button>
+                            <button type="button" id="cancel-management" class="px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
+                            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md">Salvar Alterações</button>
                         </div>
                     </form>
                 </div>
@@ -2104,4 +2256,3 @@
     </script>
 </body>
 </html>
-
